@@ -49,6 +49,17 @@ export { BOT_QUEUE_TIMEOUT_MS, BOT_BACKFILL_RETRY_MS };
 
 const DEFAULT_TIME_CONTROL = 300;
 
+export function countLiveHumansInQueue(entries: MatchmakingEntry[]): number {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    for (const member of entry.members) {
+      if (member.isBot || isBotUid(member.uid)) continue;
+      seen.add(member.uid);
+    }
+  }
+  return seen.size;
+}
+
 function normalizeQueueEntry(
   id: string,
   data: Record<string, unknown>
@@ -126,6 +137,34 @@ export async function clearActiveMatchSession(uid: string): Promise<void> {
   );
 }
 
+/** Drop stale session pointers; return a live match id if the player should rejoin. */
+export async function reconcileActiveMatchSession(uid: string): Promise<string | null> {
+  const db = getFirebaseDb();
+  const sessionRef = doc(db, "users", uid, "session", "active");
+  const sessionSnap = await getDoc(sessionRef);
+  if (!sessionSnap.exists()) return null;
+
+  const matchId = sessionSnap.data()?.matchId as string | undefined;
+  if (!matchId) {
+    await clearActiveMatchSession(uid);
+    return null;
+  }
+
+  const matchSnap = await getDoc(doc(db, "matches", matchId));
+  if (!matchSnap.exists()) {
+    await clearActiveMatchSession(uid);
+    return null;
+  }
+
+  const status = matchSnap.data()?.status as string | undefined;
+  if (status === "completed" || status === "abandoned") {
+    await clearActiveMatchSession(uid);
+    return null;
+  }
+
+  return matchId;
+}
+
 export function subscribeToActiveMatch(
   uid: string,
   onFound: (matchId: string) => void
@@ -144,12 +183,13 @@ export function subscribeToQueue(
   mode: MatchMode,
   queueEntryId: string,
   onFound: (matchId: string, options?: { usedBots?: boolean }) => void,
-  onBotBackfillFailed?: (error?: unknown) => void
+  onBotBackfillFailed?: (error?: unknown) => void,
+  onQueueStats?: (stats: { liveHumans: number }) => void
 ): () => void {
   const q = query(
     collection(getFirebaseDb(), "matchmaking"),
     where("mode", "==", mode),
-    limit(20)
+    limit(50)
   );
 
   let creating = false;
@@ -207,6 +247,7 @@ export function subscribeToQueue(
     if (creating || settled) return;
 
     const entries = snap.docs.map((d) => normalizeQueueEntry(d.id, d.data()));
+    onQueueStats?.({ liveHumans: countLiveHumansInQueue(entries) });
     const myEntry = entries.find((e) => e.id === queueEntryId);
 
     const combo = myEntry ? findQueueCombo(entries, queueEntryId) : null;
@@ -299,7 +340,7 @@ async function tryCreateBotMatchBatch(
   if (!entrySnap.exists()) return null;
 
   const queueSnap = await getDocs(
-    query(collection(db, "matchmaking"), where("mode", "==", mode), limit(20))
+    query(collection(db, "matchmaking"), where("mode", "==", mode), limit(50))
   );
   const entries = queueSnap.docs.map((d) =>
     normalizeQueueEntry(d.id, d.data() as Record<string, unknown>)
@@ -325,59 +366,26 @@ async function tryCreateBotMatchBatch(
   const slotsNeeded = 4 - totalSlots;
   if (slotsNeeded <= 0) return null;
 
+  const bots = pickBots(slotsNeeded, humans);
+  const units = buildBotFillUnits(humans, bots);
+  const players: MatchPlayer[] = assignPlayersFromUnits(units);
+  const queueEntryIds = selected.map((e) => e.id);
+
   try {
-    for (const entry of selected) {
-      const snap = await getDoc(doc(db, "matchmaking", entry.id));
-      if (!snap.exists()) return null;
-    }
+    return await runTransaction(db, async (transaction) => {
+      for (const entry of selected) {
+        const snap = await transaction.get(doc(db, "matchmaking", entry.id));
+        if (!snap.exists()) return null;
+      }
 
-    const bots = pickBots(slotsNeeded, humans);
-    const units = buildBotFillUnits(humans, bots);
-    const players: MatchPlayer[] = assignPlayersFromUnits(units);
-    const humanUids = players.filter((p) => !p.isBot).map((p) => p.uid);
-    const botUids = players.filter((p) => p.isBot).map((p) => p.uid);
-    const queueEntryIds = selected.map((e) => e.id);
-
-    const matchRef = doc(collection(db, "matches"));
-    const batch = writeBatch(db);
-
-    // Every match (including solo vs bots) runs the color-pick setup phase.
-    batch.set(matchRef, {
-      mode,
-      status: "setup",
-      players: players.map(serializeMatchPlayer),
-      playerUids: humanUids,
-      botUids,
-      hasBots: true,
-      colorChoices: {},
-      setupEndsAt: createSetupEndsTimestamp(),
-      teamClocks: { team1: DEFAULT_TIME_CONTROL, team2: DEFAULT_TIME_CONTROL },
-      winnerTeam: null,
-      createdAt: serverTimestamp(),
-      startedAt: null,
-      completedAt: null,
-    });
-
-    for (const board of createInitialBoards(players)) {
-      batch.set(doc(matchRef, "boards", board.id), serializeBoard(board));
-    }
-
-    for (const entryId of queueEntryIds) {
-      batch.delete(doc(db, "matchmaking", entryId));
-    }
-
-    for (const uid of humanUids) {
-      batch.set(doc(db, "users", uid, "session", "active"), {
-        matchId: matchRef.id,
+      return persistMatchInTransaction(transaction, db, {
         mode,
-        createdAt: serverTimestamp(),
+        players,
+        queueEntryIds,
       });
-    }
-
-    await batch.commit();
-    return matchRef.id;
+    });
   } catch (error) {
-    console.warn("[matchmaking] bot match batch failed", error);
+    console.warn("[matchmaking] bot match transaction failed", error);
     return null;
   }
 }

@@ -22,6 +22,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { getRankAssetPath, getRankLabel, getRankTier } from "@/lib/game/elo";
 import { appNavItems } from "@/lib/nav-items";
 import { AppBottomNav } from "@/components/arena/app-bottom-nav";
+import { ActiveMatchListener } from "@/components/arena/active-match-listener";
 import { NotificationBell } from "@/components/arena/notification-bell";
 import { ProfileMenu } from "@/components/arena/profile-menu";
 import { SoundToggle } from "@/components/arena/sound-toggle";
@@ -115,6 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex-1 overflow-auto p-4 pb-24 md:p-6 md:pb-6">{children}</div>
       </main>
       <AppBottomNav />
+      <ActiveMatchListener />
     </SidebarProvider>
   );
 }

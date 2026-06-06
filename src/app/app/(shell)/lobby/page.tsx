@@ -1,10 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { PartyPanel } from "@/components/arena/party-panel";
-import { MatchFoundOverlay } from "@/components/arena/match-found-overlay";
 import { LobbyScene } from "@/components/arena/lobby/lobby-scene";
 import { LobbyHeader } from "@/components/arena/lobby/lobby-header";
 import { QueueRadar } from "@/components/arena/lobby/queue-radar";
@@ -15,10 +13,8 @@ import {
 } from "@/components/arena/lobby/match-mode-panel";
 import { useAuth } from "@/providers/auth-provider";
 import {
-  clearActiveMatchSession,
   joinQueue,
   leaveQueue,
-  subscribeToActiveMatch,
   subscribeToQueue,
 } from "@/lib/game/matchmaking";
 import { canQueueParty, subscribeToUserParty } from "@/lib/social/party";
@@ -26,45 +22,31 @@ import type { PartyDocument } from "@/types/firestore";
 import { toast } from "sonner";
 import { useSound } from "@/providers/sound-provider";
 import { useLobbyMusic } from "@/hooks/use-lobby-music";
-import { playMatchFoundMusic, dismissLobbyMusic } from "@/lib/sound/music-manager";
-
-interface MatchTransition {
-  matchId: string;
-  subtitle?: string;
-}
+import { dismissLobbyMusic } from "@/lib/sound/music-manager";
 
 export default function LobbyPage() {
   const { profile, user } = useAuth();
-  const router = useRouter();
   const { play } = useSound();
   useLobbyMusic();
   const [party, setParty] = useState<(PartyDocument & { id: string }) | null>(null);
   const [queueId, setQueueId] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
   const [activeMode, setActiveMode] = useState<MatchMode>("casual");
-  const [matchTransition, setMatchTransition] = useState<MatchTransition | null>(null);
   const [queueElapsedSec, setQueueElapsedSec] = useState(0);
+  const [liveHumansInQueue, setLiveHumansInQueue] = useState(0);
   const matchFoundRef = useRef(false);
   const queueUnsubRef = useRef<(() => void) | null>(null);
   const botFailToastRef = useRef(false);
 
-  const beginMatchTransition = useCallback(
-    (matchId: string, options?: { usedBots?: boolean }) => {
-      if (matchFoundRef.current) return;
-      matchFoundRef.current = true;
-      queueUnsubRef.current?.();
-      queueUnsubRef.current = null;
-      setSearching(false);
-      dismissLobbyMusic(500);
-      play("matchFound");
-      playMatchFoundMusic();
-      setMatchTransition({
-        matchId,
-        subtitle: options?.usedBots ? "Opponents filled with arena bots" : undefined,
-      });
-    },
-    [play]
-  );
+  const onMatchFoundFromQueue = useCallback(() => {
+    if (matchFoundRef.current) return;
+    matchFoundRef.current = true;
+    queueUnsubRef.current?.();
+    queueUnsubRef.current = null;
+    setSearching(false);
+    dismissLobbyMusic(500);
+    // ActiveMatchListener routes via users/{uid}/session/active.
+  }, []);
 
   useEffect(() => {
     if (!searching) {
@@ -81,16 +63,6 @@ export default function LobbyPage() {
     if (!user) return;
     return subscribeToUserParty(user.uid, setParty);
   }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    void clearActiveMatchSession(user.uid);
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    return subscribeToActiveMatch(user.uid, (matchId) => beginMatchTransition(matchId));
-  }, [user, beginMatchTransition]);
 
   useEffect(() => {
     if (!searching) return;
@@ -115,14 +87,15 @@ export default function LobbyPage() {
         profile.uid,
         mode,
         id,
-        (matchId, options) => {
-          beginMatchTransition(matchId, options);
+        () => {
+          onMatchFoundFromQueue();
         },
         () => {
           if (botFailToastRef.current) return;
           botFailToastRef.current = true;
           toast.error("Could not start a bot match. Cancel and try again.");
-        }
+        },
+        ({ liveHumans }) => setLiveHumansInQueue(liveHumans)
       );
     } catch {
       play("uiError");
@@ -141,33 +114,30 @@ export default function LobbyPage() {
     }
     setSearching(false);
     matchFoundRef.current = false;
+    setLiveHumansInQueue(0);
   };
 
-  const queueLabel =
+  const queueLabelBase =
     party && party.members.length === 2
-      ? "Searching as party (2)"
+      ? "Searching as party — pairing with other players"
       : party && party.members.length === 1
         ? "Searching — pairing partner"
-        : "Scanning for opponents";
+        : "Searching for live opponents";
+
+  const queueLabel =
+    searching && liveHumansInQueue > 0
+      ? `${queueLabelBase} (${liveHumansInQueue} online)`
+      : queueLabelBase;
 
   const leaderHint = "Only the party leader can start matchmaking.";
 
   return (
     <>
       <QueueRadar
-        active={searching && !matchTransition}
+        active={searching}
         label={queueLabel}
         elapsedSec={queueElapsedSec}
       />
-
-      <AnimatePresence>
-        {matchTransition ? (
-          <MatchFoundOverlay
-            subtitle={matchTransition.subtitle}
-            onComplete={() => router.push(`/app/match/${matchTransition.matchId}`)}
-          />
-        ) : null}
-      </AnimatePresence>
 
       <LobbyScene>
         <div className="mx-auto max-w-4xl space-y-6 pb-8">

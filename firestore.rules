@@ -100,7 +100,10 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
         request.resource.data.uid == request.auth.uid &&
         request.auth.uid in request.resource.data.memberUids;
-      allow update, delete: if isSignedIn() &&
+      // Ephemeral queue: any signed-in client may delete entries when a match
+      // is formed (the creator removes all matched queue docs in one batch).
+      allow delete: if isSignedIn();
+      allow update: if isSignedIn() &&
         resource.data.uid == request.auth.uid;
     }
 

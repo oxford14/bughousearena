@@ -1,37 +1,76 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { BughouseArena } from "@/components/game/bughouse-arena";
 import { MatchResultScreen } from "@/components/game/match-result-screen";
 import { MatchSetupPhase } from "@/components/game/match-setup-phase";
 import { subscribeToMatchAndBoards } from "@/lib/game/sync-manager";
+import { clearActiveMatchSession } from "@/lib/game/matchmaking";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
 
 export default function MatchPage() {
   const params = useParams();
+  const router = useRouter();
   const matchId = params.id as string;
   const { user, profile } = useAuth();
   const { play } = useSound();
   const matchStartedRef = useRef(false);
+  const sessionClearedRef = useRef(false);
   const [match, setMatch] = useState<MatchDocument | null>(null);
   const [boards, setBoards] = useState<BoardDocument[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
 
   useEffect(() => {
     if (!matchId) return;
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) {
+        setLoadTimedOut(true);
+        setLoading(false);
+      }
+    }, 15000);
+
     const unsub = subscribeToMatchAndBoards(matchId, {
       onMatch: (m) => {
-        setMatch(m);
-        setLoading(false);
+        if (cancelled) return;
+        if (m) {
+          setMatch(m);
+          setLoadTimedOut(false);
+          setLoading(false);
+          window.clearTimeout(timeout);
+          return;
+        }
+        // Keep the last known match while the listener reconnects — avoids
+        // flashing "not found" when navigating back from the lobby tab.
+        setMatch((prev) => prev ?? null);
       },
       onBoards: setBoards,
     });
-    return unsub;
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      unsub();
+    };
   }, [matchId]);
+
+  useEffect(() => {
+    sessionClearedRef.current = false;
+  }, [matchId]);
+
+  useEffect(() => {
+    if (!user || !match || sessionClearedRef.current) return;
+    if (!match.playerUids?.includes(user.uid)) return;
+    sessionClearedRef.current = true;
+    void clearActiveMatchSession(user.uid);
+  }, [match, user]);
 
   useEffect(() => {
     if (match?.status === "active" && !matchStartedRef.current) {
@@ -50,8 +89,22 @@ export default function MatchPage() {
 
   if (!match) {
     return (
-      <div className="text-center py-12">
-        <p className="text-muted-foreground">Match not found.</p>
+      <div className="text-center py-12 space-y-4">
+        <p className="text-muted-foreground">
+          {loadTimedOut
+            ? "This match could not be loaded. It may have expired or failed to start."
+            : "Loading match…"}
+        </p>
+        {loadTimedOut ? (
+          <Button
+            className="cursor-pointer"
+            onClick={() => router.push("/app/lobby")}
+          >
+            Back to Lobby
+          </Button>
+        ) : (
+          <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+        )}
       </div>
     );
   }

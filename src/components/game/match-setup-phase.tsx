@@ -10,6 +10,7 @@ import {
   getSetupSecondsRemaining,
   getTeamPlayers,
   MATCH_SETUP_DURATION_SEC,
+  oppositeColor,
   previewTeamAssignment,
 } from "@/lib/game/match-setup";
 import {
@@ -166,6 +167,20 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
     if (myChoice === color) return;
     void submitColorChoice(match.id, myUid, color);
   };
+
+  // Bot teammates mirror the human's pick so setup can finish cleanly.
+  useEffect(() => {
+    if (!myChoice) return;
+    for (const bot of teammates.filter((p) => isBotUid(p.uid))) {
+      if (choices[bot.uid]) continue;
+      void submitColorChoice(match.id, bot.uid, oppositeColor(myChoice));
+    }
+  }, [choices, match.id, myChoice, teammates]);
+
+  useEffect(() => {
+    if (secondsLeft > 0 || !myChoice) return;
+    void finalizeMatchSetup(match.id);
+  }, [secondsLeft, myChoice, match.id]);
 
   const handleSendChat = async () => {
     if (!chatText.trim()) return;

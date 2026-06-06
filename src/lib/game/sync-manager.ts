@@ -1,23 +1,47 @@
 import {
   collection,
   doc,
+  getDoc,
   onSnapshot,
   type Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/config";
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
 
+export async function waitForMatchDocument(
+  matchId: string,
+  options?: { timeoutMs?: number; intervalMs?: number }
+): Promise<boolean> {
+  const timeoutMs = options?.timeoutMs ?? 15000;
+  const intervalMs = options?.intervalMs ?? 400;
+  const ref = doc(getFirebaseDb(), "matches", matchId);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const snap = await getDoc(ref);
+    if (snap.exists()) return true;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return false;
+}
+
 export function subscribeToMatch(
   matchId: string,
   onMatch: (match: MatchDocument | null) => void
 ): Unsubscribe {
-  return onSnapshot(doc(getFirebaseDb(), "matches", matchId), (snap) => {
-    if (!snap.exists()) {
-      onMatch(null);
-      return;
+  return onSnapshot(
+    doc(getFirebaseDb(), "matches", matchId),
+    (snap) => {
+      if (!snap.exists()) {
+        onMatch(null);
+        return;
+      }
+      onMatch({ id: snap.id, ...snap.data() } as MatchDocument);
+    },
+    (error) => {
+      console.warn("[match] listener error", error.code, error.message);
     }
-    onMatch({ id: snap.id, ...snap.data() } as MatchDocument);
-  });
+  );
 }
 
 export function subscribeToBoards(
