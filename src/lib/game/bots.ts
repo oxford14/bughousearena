@@ -80,17 +80,22 @@ export function pickBots(
 /** Build queue units when filling empty slots with bots. */
 export function buildBotFillUnits(
   humans: MatchmakingMember[],
-  bots: MatchmakingMember[]
+  bots: MatchmakingMember[],
+  options?: { teammates?: boolean }
 ): MatchmakingMember[][] {
   if (humans.length + bots.length !== 4) {
     throw new Error(`Expected 4 total players, got ${humans.length + bots.length}`);
   }
 
+  // Party / friends: humans share a team, both bots are opponents.
+  if (options?.teammates && humans.length === 2 && bots.length === 2) {
+    return [[humans[0]!, humans[1]!], [bots[0]!, bots[1]!]];
+  }
+
   if (humans.length === 2 && bots.length === 2) {
-    return [
-      [humans[0]!, bots[0]!],
-      [humans[1]!, bots[1]!],
-    ];
+    const pairA: MatchmakingMember[] = [humans[0]!, bots[0]!];
+    const pairB: MatchmakingMember[] = [humans[1]!, bots[1]!];
+    return Math.random() < 0.5 ? [pairA, pairB] : [pairB, pairA];
   }
 
   if (humans.length === 1 && bots.length === 3) {

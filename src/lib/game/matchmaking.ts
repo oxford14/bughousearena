@@ -47,6 +47,9 @@ import {
 
 export { BOT_QUEUE_TIMEOUT_MS, BOT_BACKFILL_RETRY_MS };
 
+/** When exactly two humans are waiting, fill bots after this grace period. */
+export const HUMAN_PAIR_BOT_GRACE_MS = 5_000;
+
 const DEFAULT_TIME_CONTROL = 300;
 
 export function countLiveHumansInQueue(entries: MatchmakingEntry[]): number {
@@ -58,6 +61,25 @@ export function countLiveHumansInQueue(entries: MatchmakingEntry[]): number {
     }
   }
   return seen.size;
+}
+
+/** True when two humans queued as party / same queue entry (should share a team). */
+export function areQueueHumansTeammates(
+  selected: MatchmakingEntry[],
+  humans: MatchmakingMember[]
+): boolean {
+  if (humans.length !== 2) return false;
+  const humanUids = new Set(humans.map((h) => h.uid));
+
+  for (const entry of selected) {
+    const inEntry = entry.members.filter((m) => humanUids.has(m.uid)).length;
+    if (inEntry === 2) return true;
+  }
+
+  const partyIds = selected
+    .filter((e) => e.partyId && e.members.some((m) => humanUids.has(m.uid)))
+    .map((e) => e.partyId as string);
+  return partyIds.length >= 2 && partyIds.every((id) => id === partyIds[0]);
 }
 
 function normalizeQueueEntry(
@@ -249,6 +271,7 @@ export function subscribeToQueue(
     const entries = snap.docs.map((d) => normalizeQueueEntry(d.id, d.data()));
     onQueueStats?.({ liveHumans: countLiveHumansInQueue(entries) });
     const myEntry = entries.find((e) => e.id === queueEntryId);
+    const liveHumans = countLiveHumansInQueue(entries);
 
     const combo = myEntry ? findQueueCombo(entries, queueEntryId) : null;
     if (combo) {
@@ -262,20 +285,22 @@ export function subscribeToQueue(
       return;
     }
 
-    if (myEntry && entryWaitMs(myEntry) >= BOT_QUEUE_TIMEOUT_MS) {
-      attemptBotBackfill("timeout");
+    const botFillReadyMs =
+      liveHumans === 2 ? HUMAN_PAIR_BOT_GRACE_MS : BOT_QUEUE_TIMEOUT_MS;
+
+    if (myEntry && entryWaitMs(myEntry) >= botFillReadyMs) {
+      attemptBotBackfill(liveHumans === 2 ? "human-pair" : "timeout");
       return;
     }
 
-    if (!myEntry && entryWaitMs(undefined) >= BOT_QUEUE_TIMEOUT_MS) {
+    if (!myEntry && entryWaitMs(undefined) >= botFillReadyMs) {
       attemptBotBackfill("entry-missing");
     }
   });
 
-  const initialDelay = Math.max(0, BOT_QUEUE_TIMEOUT_MS - (Date.now() - joinedAtMs));
   const botTimer = window.setTimeout(() => {
     attemptBotBackfill("timer");
-  }, initialDelay);
+  }, Math.max(0, BOT_QUEUE_TIMEOUT_MS - (Date.now() - joinedAtMs)));
 
   const botRetry = window.setInterval(() => {
     if (settled || Date.now() - joinedAtMs < BOT_QUEUE_TIMEOUT_MS) return;
@@ -367,7 +392,8 @@ async function tryCreateBotMatchBatch(
   if (slotsNeeded <= 0) return null;
 
   const bots = pickBots(slotsNeeded, humans);
-  const units = buildBotFillUnits(humans, bots);
+  const teammates = areQueueHumansTeammates(selected, humans);
+  const units = buildBotFillUnits(humans, bots, { teammates });
   const players: MatchPlayer[] = assignPlayersFromUnits(units);
   const queueEntryIds = selected.map((e) => e.id);
 

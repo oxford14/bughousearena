@@ -238,7 +238,10 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     const opponentSeatId = getMirrorSeats(board.id as BoardSeatId).find(
       (s) => s !== board.id
     );
-    const opponentPlayer = match.players.find((p) => p.boardId === opponentSeatId);
+    const opponentBoard = boards.find((b) => b.id === opponentSeatId);
+    const opponentPlayer =
+      match.players.find((p) => p.boardId === opponentSeatId) ??
+      match.players.find((p) => p.uid === opponentBoard?.playerUid);
     const boardLabel = isMine ? "Your board" : isPartner ? "Partner board" : "Board";
     const frozen = board.boardStatus === "stalemate";
     const clocks = getBoardClocks(board.id);

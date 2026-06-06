@@ -219,7 +219,7 @@ export function ArenaBoardPanel({
         {/* This board's player sits at the bottom (your POV). */}
         <PlayerLine
           player={player}
-          fallback={board.id}
+          fallback={isBotUid(board.playerUid) ? "Bot" : "Player"}
           clock={myClock}
           clockRunning={myClockRunning}
           isSelf={isMine}

@@ -3,6 +3,15 @@ import type { BoardId } from "./bughouse-rules";
 
 export type QueueUnitMember = MatchmakingMember;
 
+function shuffle<T>(items: T[]): T[] {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j]!, copy[i]!];
+  }
+  return copy;
+}
+
 export function slotCount(members: QueueUnitMember[]): number {
   return members.length;
 }
@@ -35,7 +44,7 @@ export function assignPlayersFromUnits(
     team1 = pair;
     team2 = units.filter((u) => u.length === 1).flat();
   } else if (units.length === 4 && units.every((u) => u.length === 1)) {
-    const flat = units.flat();
+    const flat = shuffle(units.flat());
     team1 = flat.slice(0, 2);
     team2 = flat.slice(2, 4);
   } else {

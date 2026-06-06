@@ -109,6 +109,9 @@ export async function finalizeMatchSetup(matchId: string): Promise<boolean> {
     transaction.update(matchRef, {
       status: "active",
       players: updatedPlayers.map(serializeMatchPlayer),
+      playerUids: updatedPlayers.filter((p) => !p.isBot).map((p) => p.uid),
+      botUids: updatedPlayers.filter((p) => p.isBot).map((p) => p.uid),
+      hasBots: updatedPlayers.some((p) => p.isBot),
       startedAt: serverTimestamp(),
       setupEndsAt: null,
     });
