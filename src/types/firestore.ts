@@ -21,6 +21,9 @@ export interface UserProfile {
   onlineStatus: OnlineStatus;
   lastOnline: Timestamp | null;
   createdAt: Timestamp;
+  /** Prevents double-applying ranked ELO for the same match. */
+  lastRatedMatchId?: string | null;
+  lastRatingChange?: number | null;
 }
 
 export interface FriendEntry {

@@ -138,7 +138,7 @@ async function executeBotTurn(
   const reserve = board.captured as PieceSymbol[];
 
   if (shouldBotDrop(board, skill)) {
-    const drop = chooseBotDrop(board.fen, board.captured, seatColor);
+    const drop = chooseBotDrop(board.fen, board.captured, seatColor, skill);
     if (drop) {
       const validation = validateDrop(
         board.fen,

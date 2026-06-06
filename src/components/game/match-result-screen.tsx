@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Image from "next/image";
@@ -25,9 +25,11 @@ import {
 } from "@/lib/game/bughouse-engine";
 import { dedupePlayersByUid, getTeamPlayers } from "@/lib/game/match-setup";
 import { clearActiveMatchSession } from "@/lib/game/matchmaking";
+import { applyRankedRatingForUser } from "@/lib/game/rating-service";
 import { saveMatchHistory } from "@/lib/social/match-history";
 import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
 import { isBotUid } from "@/lib/game/bots";
+import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
 import { cn } from "@/lib/utils";
@@ -41,8 +43,11 @@ interface MatchResultScreenProps {
 export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenProps) {
   const router = useRouter();
   const { play } = useSound();
+  const { refreshProfile } = useAuth();
   const historySavedRef = useRef(false);
   const soundPlayedRef = useRef(false);
+  const [ratingChange, setRatingChange] = useState<number | null>(null);
+  const [ratingReady, setRatingReady] = useState(false);
 
   const myTeam = userUid ? getPlayerTeam(match, userUid) : null;
   const won = userUid ? didPlayerWin(match, userUid) : null;
@@ -72,7 +77,26 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
   }, [isVictory, isDefeat, play]);
 
   useEffect(() => {
-    if (!userUid || myTeam == null || historySavedRef.current) return;
+    if (!userUid || myTeam == null) return;
+
+    if (match.mode !== "ranked") {
+      setRatingChange(0);
+      setRatingReady(true);
+      return;
+    }
+
+    void applyRankedRatingForUser(match.id, userUid)
+      .then((delta) => {
+        setRatingChange(delta ?? 0);
+        void refreshProfile();
+      })
+      .catch(() => setRatingChange(0))
+      .finally(() => setRatingReady(true));
+  }, [userUid, myTeam, match.id, match.mode, refreshProfile]);
+
+  useEffect(() => {
+    if (!userUid || myTeam == null || historySavedRef.current || !ratingReady) return;
+
     historySavedRef.current = true;
 
     void saveMatchHistory(userUid, {
@@ -81,9 +105,20 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
       result: isVictory ? "win" : isDefeat ? "loss" : "draw",
       opponents: opponents.map((p) => p.displayName),
       duration: durationSec ?? 0,
-      ratingChange: 0,
+      ratingChange: match.mode === "ranked" ? (ratingChange ?? 0) : 0,
     }).catch(() => {});
-  }, [userUid, myTeam, match.id, match.mode, isVictory, isDefeat, opponents, durationSec]);
+  }, [
+    userUid,
+    myTeam,
+    match.id,
+    match.mode,
+    isVictory,
+    isDefeat,
+    opponents,
+    durationSec,
+    ratingChange,
+    ratingReady,
+  ]);
 
   const handleReturnLobby = async () => {
     play("uiNav");
@@ -181,6 +216,25 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
               <span className="text-xs text-muted-foreground tabular-nums">
                 {formatDuration(durationSec)}
               </span>
+              {match.mode === "ranked" && ratingReady && ratingChange != null && (
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "tabular-nums font-semibold",
+                    ratingChange > 0
+                      ? "border-emerald-500/40 text-emerald-300"
+                      : ratingChange < 0
+                        ? "border-red-500/40 text-red-300"
+                        : "text-muted-foreground"
+                  )}
+                >
+                  {ratingChange > 0 ? "+" : ""}
+                  {ratingChange} ELO
+                </Badge>
+              )}
+              {match.mode === "casual" && (
+                <span className="text-xs text-muted-foreground">Unranked — no ELO change</span>
+              )}
             </div>
           </div>
 

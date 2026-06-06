@@ -1,10 +1,18 @@
 import type { MatchmakingMember } from "@/types/firestore";
+import type { RankTier } from "./ranks";
 import {
   getBotSkillProfile,
   getRankLabel,
   getRankTier,
-  type RankTier,
+  RANK_TIER_ORDER,
 } from "./ranks";
+
+function playTierForRating(targetRating: number): RankTier {
+  const base = getRankTier(targetRating);
+  const idx = RANK_TIER_ORDER.indexOf(base);
+  // Bots play one tier stronger than their label (cap at king).
+  return RANK_TIER_ORDER[Math.min(idx + 1, RANK_TIER_ORDER.length - 1)]!;
+}
 
 /** Wait this long before filling empty slots with arena bots. */
 export const BOT_QUEUE_TIMEOUT_MS = 25_000;
@@ -59,20 +67,20 @@ export function pickBots(
   const targetRating = Math.round(
     humanMembers.reduce((sum, m) => sum + m.rating, 0) / humanMembers.length
   );
-  const skillTier = getRankTier(targetRating);
+  const displayTier = getRankTier(targetRating);
+  const playTier = playTierForRating(targetRating);
   const personas = shuffle(BOT_PERSONAS).slice(0, count);
 
   return personas.map((persona, index) => {
-    const rankTier = skillTier;
-    const label = getRankLabel(rankTier);
+    const label = getRankLabel(displayTier);
     return {
-      uid: `${BOT_UID_PREFIX}${persona.id}-${rankTier}-${index}`,
+      uid: `${BOT_UID_PREFIX}${persona.id}-${displayTier}-${index}`,
       displayName: `${persona.suffix} ${label}`,
       photoURL: null,
-      rating: ratingForTier(rankTier, targetRating),
+      rating: ratingForTier(displayTier, targetRating),
       isBot: true,
-      botSkill: rankTier,
-      rankTier,
+      botSkill: playTier,
+      rankTier: displayTier,
     };
   });
 }
