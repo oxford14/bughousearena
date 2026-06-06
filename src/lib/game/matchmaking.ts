@@ -338,55 +338,28 @@ async function tryCreateBotMatchBatch(
     const botUids = players.filter((p) => p.isBot).map((p) => p.uid);
     const queueEntryIds = selected.map((e) => e.id);
 
-    /** Solo vs bots: skip setup and start immediately. */
-    const soloBotMatch = humans.length === 1 && bots.length === 3;
-
     const matchRef = doc(collection(db, "matches"));
     const batch = writeBatch(db);
-    const nowMs = Date.now();
 
-    if (soloBotMatch) {
-      batch.set(matchRef, {
-        mode,
-        status: "active",
-        players: players.map(serializeMatchPlayer),
-        playerUids: humanUids,
-        botUids,
-        hasBots: true,
-        teamClocks: { team1: DEFAULT_TIME_CONTROL, team2: DEFAULT_TIME_CONTROL },
-        winnerTeam: null,
-        createdAt: serverTimestamp(),
-        startedAt: serverTimestamp(),
-        completedAt: null,
-      });
+    // Every match (including solo vs bots) runs the color-pick setup phase.
+    batch.set(matchRef, {
+      mode,
+      status: "setup",
+      players: players.map(serializeMatchPlayer),
+      playerUids: humanUids,
+      botUids,
+      hasBots: true,
+      colorChoices: {},
+      setupEndsAt: createSetupEndsTimestamp(),
+      teamClocks: { team1: DEFAULT_TIME_CONTROL, team2: DEFAULT_TIME_CONTROL },
+      winnerTeam: null,
+      createdAt: serverTimestamp(),
+      startedAt: null,
+      completedAt: null,
+    });
 
-      for (const board of createInitialBoards(players)) {
-        batch.set(doc(matchRef, "boards", board.id), {
-          ...serializeBoard(board),
-          clockRunning: "w",
-          clockUpdatedAtMs: nowMs,
-        });
-      }
-    } else {
-      batch.set(matchRef, {
-        mode,
-        status: "setup",
-        players: players.map(serializeMatchPlayer),
-        playerUids: humanUids,
-        botUids,
-        hasBots: true,
-        colorChoices: {},
-        setupEndsAt: createSetupEndsTimestamp(),
-        teamClocks: { team1: DEFAULT_TIME_CONTROL, team2: DEFAULT_TIME_CONTROL },
-        winnerTeam: null,
-        createdAt: serverTimestamp(),
-        startedAt: null,
-        completedAt: null,
-      });
-
-      for (const board of createInitialBoards(players)) {
-        batch.set(doc(matchRef, "boards", board.id), serializeBoard(board));
-      }
+    for (const board of createInitialBoards(players)) {
+      batch.set(doc(matchRef, "boards", board.id), serializeBoard(board));
     }
 
     for (const entryId of queueEntryIds) {

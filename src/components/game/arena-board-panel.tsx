@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Chessboard } from "react-chessboard";
-import type { Square } from "chess.js";
+import { Chessboard, ChessboardProvider } from "react-chessboard";
+import { Chess, type Square } from "chess.js";
 import { motion } from "framer-motion";
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
@@ -10,15 +10,18 @@ import type { BoardDocument } from "@/types/firestore";
 import type { MatchPlayer } from "@/types/firestore";
 import { getValidDropSquares } from "@/lib/game/move-validator";
 import { getArenaChessboardOptions } from "@/lib/game/arena-board-theme";
-import { getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
+import { canDropPiece, getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
+import { pieceTypeToSymbol } from "@/components/game/arena-pieces";
 import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
 import { isBotUid } from "@/lib/game/bots";
 import { formatClock } from "@/lib/game/clock-manager";
 import { PieceReserve } from "@/components/game/piece-reserve";
+import { cn } from "@/lib/utils";
 
 interface ArenaBoardPanelProps {
   board: BoardDocument;
   player: MatchPlayer | undefined;
+  opponentPlayer?: MatchPlayer | undefined;
   isMine: boolean;
   isPartner: boolean;
   boardLabel: string;
@@ -29,13 +32,58 @@ interface ArenaBoardPanelProps {
   selectedPiece: PieceSymbol | null;
   onSelectPiece: (piece: PieceSymbol | null) => void;
   onMove: (sourceSquare: string, targetSquare: string) => boolean;
-  onDrop: (square: Square) => void;
+  onDropPiece: (square: Square, piece?: PieceSymbol) => boolean;
   onPlaySelect: () => void;
+}
+
+function PlayerLine({
+  player,
+  fallback,
+  clock,
+  clockRunning,
+  isSelf,
+}: {
+  player: MatchPlayer | undefined;
+  fallback: string;
+  clock?: number;
+  clockRunning?: boolean;
+  isSelf?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-1.5 px-1 min-w-0">
+      {player ? (
+        <Image
+          src={getRankAssetPath(player.rankTier ?? getRankTier(player.rating))}
+          alt=""
+          width={18}
+          height={18}
+          className="shrink-0"
+        />
+      ) : null}
+      <span className="text-sm font-medium truncate">
+        {isSelf ? "You" : player?.displayName ?? fallback}
+        {player && isBotUid(player.uid) ? (
+          <span className="text-muted-foreground font-normal"> · Bot</span>
+        ) : null}
+      </span>
+      {clock != null ? (
+        <span
+          className={cn(
+            "ml-auto text-xs tabular-nums shrink-0",
+            clockRunning ? "text-primary font-semibold neon-glow" : "text-muted-foreground"
+          )}
+        >
+          {formatClock(clock)}
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
 export function ArenaBoardPanel({
   board,
   player,
+  opponentPlayer,
   isMine,
   isPartner,
   boardLabel,
@@ -46,7 +94,7 @@ export function ArenaBoardPanel({
   selectedPiece,
   onSelectPiece,
   onMove,
-  onDrop,
+  onDropPiece,
   onPlaySelect,
 }: ArenaBoardPanelProps) {
   const [hoverSquare, setHoverSquare] = useState<string | null>(null);
@@ -67,15 +115,50 @@ export function ArenaBoardPanel({
         position: board.fen,
         boardOrientation,
         allowDragging: isMine,
+        allowDragOffBoard: false,
         validDropSquares,
         hoverSquare,
-        onPieceDrop: ({ sourceSquare, targetSquare }) => {
+        canDragPiece: ({ isSparePiece, piece }) => {
+          if (!isMine) return false;
+          const chess = new Chess(board.fen);
+          if (chess.turn() !== seatColor) return false;
+          if (isSparePiece) {
+            const symbol = pieceTypeToSymbol(piece.pieceType);
+            return symbol ? canDropPiece(reserve, symbol) : false;
+          }
+          return true;
+        },
+        onPieceDrag: ({ isSparePiece, piece }) => {
+          if (!isMine || !isSparePiece) return;
+          const symbol = pieceTypeToSymbol(piece.pieceType);
+          if (symbol) onSelectPiece(symbol);
+        },
+        onPieceClick: ({ isSparePiece, piece }) => {
+          if (!isMine || !isSparePiece) return;
+          const symbol = pieceTypeToSymbol(piece.pieceType);
+          if (!symbol) return;
+          if (selectedPiece === symbol) {
+            onSelectPiece(null);
+          } else {
+            onSelectPiece(symbol);
+            onPlaySelect();
+          }
+        },
+        onPieceDrop: ({ piece, sourceSquare, targetSquare }) => {
           if (!targetSquare) return false;
+          if (piece.isSparePiece) {
+            const symbol = pieceTypeToSymbol(piece.pieceType);
+            if (!symbol) return false;
+            const ok = onDropPiece(targetSquare as Square, symbol);
+            if (ok) onSelectPiece(null);
+            return ok;
+          }
           return onMove(sourceSquare, targetSquare);
         },
         onSquareClick: ({ square }) => {
           if (isMine && selectedPiece) {
-            onDrop(square as Square);
+            const ok = onDropPiece(square as Square);
+            if (ok) onSelectPiece(null);
           }
         },
         onMouseOverSquare: ({ square }) => {
@@ -90,8 +173,11 @@ export function ArenaBoardPanel({
       boardOrientation,
       hoverSquare,
       isMine,
-      onDrop,
+      onDropPiece,
       onMove,
+      onPlaySelect,
+      onSelectPiece,
+      reserve,
       selectedPiece,
       validDropSquares,
     ]
@@ -109,76 +195,56 @@ export function ArenaBoardPanel({
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
     >
-      <div className="flex items-center justify-between mb-2 px-1 gap-2">
-        <div className="flex flex-col gap-0.5 min-w-0">
-          <span className="text-[10px] uppercase tracking-wider text-secondary font-semibold">
-            {boardLabel}
-          </span>
-          <div className="flex items-center gap-1.5 min-w-0">
-            {player ? (
-              <Image
-                src={getRankAssetPath(player.rankTier ?? getRankTier(player.rating))}
-                alt=""
-                width={18}
-                height={18}
-                className="shrink-0"
-              />
-            ) : null}
-            <span className="text-sm font-medium truncate">
-              {player?.displayName ?? board.id}
-              {player && isBotUid(player.uid) ? (
-                <span className="text-muted-foreground font-normal"> · Bot</span>
-              ) : null}
-            </span>
-          </div>
-        </div>
+      <div className="flex items-center justify-between mb-1.5 px-1 gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-secondary font-semibold">
+          {boardLabel}
+        </span>
         <Badge variant={board.team === 1 ? "default" : "secondary"}>Team {board.team}</Badge>
       </div>
 
-      {(myClock != null || opponentClock != null) && (
-        <div className="flex justify-between px-1 mb-2 text-xs tabular-nums">
-          <span
-            className={
-              opponentClockRunning
-                ? "text-primary font-semibold"
-                : "text-muted-foreground"
-            }
-          >
-            Opp {formatClock(opponentClock ?? 0)}
-          </span>
-          <span
-            className={
-              myClockRunning ? "text-primary font-semibold neon-glow" : "text-muted-foreground"
-            }
-          >
-            You {formatClock(myClock ?? 0)}
-          </span>
+      {/* Opponent sits across the board (top of POV). */}
+      <PlayerLine
+        player={opponentPlayer}
+        fallback="Opponent"
+        clock={opponentClock}
+        clockRunning={opponentClockRunning}
+      />
+
+      <ChessboardProvider options={chessboardOptions}>
+        <div className="relative aspect-square w-full max-w-[min(100%,420px)] mx-auto rounded-lg p-1 my-1.5 bg-[#0a0618]/60">
+          <Chessboard options={chessboardOptions} />
         </div>
-      )}
 
-      <div className="relative aspect-square w-full max-w-[min(100%,420px)] mx-auto rounded-lg p-1 bg-[#0a0618]/60">
-        <Chessboard options={chessboardOptions} />
-      </div>
-
-      {(isMine || isPartner) && (
-        <PieceReserve
-          captured={board.captured}
-          playerColor={seatColor}
-          selectedPiece={isMine ? selectedPiece : null}
-          interactive={isMine}
-          label={
-            isMine ? "Your reserve (captured pieces)" : "Partner reserve"
-          }
-          onSelect={(piece) => {
-            if (selectedPiece === piece) {
-              onSelectPiece(null);
-            } else {
-              onSelectPiece(piece);
-              onPlaySelect();
-            }
-          }}
+        {/* This board's player sits at the bottom (your POV). */}
+        <PlayerLine
+          player={player}
+          fallback={board.id}
+          clock={myClock}
+          clockRunning={myClockRunning}
+          isSelf={isMine}
         />
-      )}
+
+        {(isMine || isPartner) && (
+          <PieceReserve
+            captured={board.captured}
+            playerColor={seatColor}
+            selectedPiece={isMine ? selectedPiece : null}
+            interactive={isMine}
+            draggable={isMine}
+            label={
+              isMine ? "Your reserve (captured pieces)" : "Partner reserve"
+            }
+            onSelect={(piece) => {
+              if (selectedPiece === piece) {
+                onSelectPiece(null);
+              } else {
+                onSelectPiece(piece);
+                onPlaySelect();
+              }
+            }}
+          />
+        )}
+      </ChessboardProvider>
     </motion.div>
   );
 }

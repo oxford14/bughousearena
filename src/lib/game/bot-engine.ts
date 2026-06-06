@@ -86,8 +86,12 @@ function shuffle<T>(items: T[]): T[] {
   return copy;
 }
 
-export function isBotBoardTurn(board: BoardDocument): boolean {
-  if (!isBotUid(board.playerUid) || board.isGameOver) return false;
+export function isBotBoardTurn(
+  board: BoardDocument,
+  occupantUid?: string
+): boolean {
+  const uid = occupantUid ?? board.playerUid;
+  if (!isBotUid(uid) || board.isGameOver) return false;
   if (board.boardStatus && board.boardStatus !== "active") return false;
   const chess = new Chess(board.fen);
   const seatColor = getSeatColor(board.id as BoardSeatId);

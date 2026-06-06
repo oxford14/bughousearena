@@ -160,6 +160,7 @@ service cloud.firestore {
           matchData(matchId).status in ['setup', 'active'] &&
           request.resource.data.uid == request.auth.uid &&
           request.resource.data.team in [1, 2] &&
+          request.resource.data.scope in ['team', 'all'] &&
           request.resource.data.text.size() > 0 &&
           request.resource.data.text.size() <= 500;
         allow update, delete: if false;
@@ -217,9 +218,12 @@ service cloud.firestore {
     }
 
     match /voiceSignals/{roomId}/candidates/{candidateId} {
-      allow read: if isSignedIn();
+      // Signals can only be read by the teammate they are addressed to.
+      allow read: if isSignedIn() && resource.data.to == request.auth.uid;
       allow create: if isSignedIn() &&
-        request.resource.data.uid == request.auth.uid;
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.to is string &&
+        request.resource.data.to != request.auth.uid;
       allow delete: if isSignedIn() &&
         resource.data.uid == request.auth.uid;
     }

@@ -710,9 +710,8 @@ export function snapshotFromBoardDocs(
       promotedSquares,
       whiteClock: primary.whiteClock ?? 300,
       blackClock: primary.blackClock ?? 300,
-      clockRunning:
-        primary.clockRunning ??
-        (status === "active" ? getSideToMoveFromFen(fen) : null),
+      // Clock stays paused (null) until the first move is made on this board.
+      clockRunning: primary.clockRunning ?? null,
       clockUpdatedAtMs: primary.clockUpdatedAtMs ?? 0,
       status,
     };

@@ -5,8 +5,8 @@ import type { BoardDocument, MatchDocument } from "@/types/firestore";
 import {
   getEffectiveClock,
   getPhysicalBoard,
+  getPhysicalBoardLabel,
   getSeatColor,
-  getSideToMoveFromFen,
   PHYSICAL_BOARD_SEATS,
   snapshotFromBoardDocs,
   type BoardSeatId,
@@ -14,6 +14,7 @@ import {
   type PlayerColor,
 } from "@/lib/game/bughouse-engine";
 import { submitTimeForfeit } from "@/lib/game/match-actions";
+import type { MatchPlayer } from "@/types/firestore";
 
 export interface PhysicalClockDisplay {
   white: number;
@@ -38,11 +39,8 @@ function buildPhysicalDisplays(
       boardStatus: b.boardStatus,
       whiteClock: b.whiteClock,
       blackClock: b.blackClock,
-      clockRunning:
-        b.clockRunning ??
-        (match.status === "active" && b.boardStatus !== "stalemate"
-          ? getSideToMoveFromFen(b.fen)
-          : null),
+      // Clock stays paused (null) until the first move on this board sets it.
+      clockRunning: b.clockRunning ?? null,
       clockUpdatedAtMs: b.clockUpdatedAtMs ?? startedAtMs,
     }))
   );
@@ -101,25 +99,21 @@ export function useMatchClocks(match: MatchDocument, boards: BoardDocument[]) {
     return { mine, opponent, mineRunning, opponentRunning, physicalId };
   };
 
-  const getPhysicalBoardLabel = (physicalId: PhysicalBoardId) =>
-    physicalId === "alpha" ? "Board Alpha" : "Board Bravo";
+  const getPhysicalSeatPlayer = (
+    physicalId: PhysicalBoardId,
+    color: PlayerColor
+  ): MatchPlayer | undefined => {
+    const seatId = PHYSICAL_BOARD_SEATS[physicalId].find(
+      (id) => getSeatColor(id) === color
+    );
+    if (!seatId) return undefined;
+    return match.players.find((p) => p.boardId === seatId);
+  };
 
   return {
     physicalClocks,
     getBoardClocks,
     getPhysicalBoardLabel,
-    getSeatLabel: (color: PlayerColor, physicalId: PhysicalBoardId) => {
-      const seatId = PHYSICAL_BOARD_SEATS[physicalId].find(
-        (id) => getSeatColor(id) === color
-      );
-      if (!seatId) return color === "w" ? "White" : "Black";
-      return color === "w"
-        ? physicalId === "alpha"
-          ? "White Alpha"
-          : "White Bravo"
-        : physicalId === "alpha"
-          ? "Black Alpha"
-          : "Black Bravo";
-    },
+    getPhysicalSeatPlayer,
   };
 }

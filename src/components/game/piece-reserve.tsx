@@ -1,4 +1,5 @@
 import { arenaPieces, reservePieceKeyFromColor } from "@/components/game/arena-pieces";
+import { SparePiece } from "react-chessboard";
 import { normalizeCaptured, type PieceSymbol } from "@/lib/game/bughouse-rules";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,8 @@ interface PieceReserveProps {
   playerColor: import("@/types/firestore").PlayerColor;
   selectedPiece: PieceSymbol | null;
   interactive: boolean;
+  /** When true, pieces are draggable onto the board (requires ChessboardProvider). */
+  draggable?: boolean;
   label: string;
   onSelect?: (piece: PieceSymbol) => void;
 }
@@ -26,6 +29,7 @@ export function PieceReserve({
   playerColor,
   selectedPiece,
   interactive,
+  draggable = false,
   label,
   onSelect,
 }: PieceReserveProps) {
@@ -43,6 +47,31 @@ export function PieceReserve({
             const key = reservePieceKeyFromColor(playerColor, piece);
             const PieceIcon = arenaPieces[key];
             const isSelected = selectedPiece === piece;
+
+            if (draggable && interactive) {
+              return (
+                <div
+                  key={piece}
+                  className={cn(
+                    "relative flex h-14 w-14 flex-col items-center justify-center rounded-lg border transition-all cursor-grab active:cursor-grabbing",
+                    isSelected
+                      ? "border-[#4ade80] bg-[#4ade80]/15 shadow-[0_0_16px_rgba(74,222,128,0.35)]"
+                      : "border-primary/25 bg-[#1a1035]/80 hover:border-primary/50 hover:bg-primary/10"
+                  )}
+                  title={`Drag ${PIECE_LABEL[piece]} onto the board`}
+                  aria-label={`${PIECE_LABEL[piece]}${counts[piece] > 1 ? `, ${counts[piece]} available` : ""}`}
+                >
+                  <div className="h-10 w-10 pointer-events-auto">
+                    <SparePiece pieceType={key} />
+                  </div>
+                  {counts[piece] > 1 ? (
+                    <span className="absolute -bottom-1 -right-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-foreground">
+                      {counts[piece]}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            }
 
             return (
               <button

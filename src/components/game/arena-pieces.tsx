@@ -45,6 +45,25 @@ export function reservePieceKeyFromColor(
   return map[piece] ?? (`${color}P` as keyof typeof arenaPieces);
 }
 
+const PIECE_TYPE_TO_SYMBOL: Record<string, import("@/lib/game/bughouse-engine").PieceSymbol> = {
+  wP: "p",
+  wR: "r",
+  wN: "n",
+  wB: "b",
+  wQ: "q",
+  bP: "p",
+  bR: "r",
+  bN: "n",
+  bB: "b",
+  bQ: "q",
+};
+
+export function pieceTypeToSymbol(
+  pieceType: string
+): import("@/lib/game/bughouse-engine").PieceSymbol | null {
+  return PIECE_TYPE_TO_SYMBOL[pieceType] ?? null;
+}
+
 export function reservePieceKey(
   team: 1 | 2,
   piece: string

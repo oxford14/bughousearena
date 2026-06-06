@@ -9,18 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VictoryConfetti } from "@/components/game/victory-confetti";
+import { MatchResultBoard } from "@/components/game/match-result-board";
 import {
   didPlayerWin,
   formatDuration,
   formatMatchEndReason,
+  getDecisiveBoardLabel,
+  getMatchEndReasonTitle,
   getPlayerTeam,
   matchDurationSeconds,
 } from "@/lib/game/match-end";
 import {
-  getPhysicalBoardLabel,
   getPhysicalBoardLabelForSeat,
-  PHYSICAL_BOARD_SEATS,
-  type PhysicalBoardId,
+  type BoardSeatId,
 } from "@/lib/game/bughouse-engine";
 import { dedupePlayersByUid, getTeamPlayers } from "@/lib/game/match-setup";
 import { clearActiveMatchSession } from "@/lib/game/matchmaking";
@@ -58,27 +59,10 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
     return getTeamPlayers(match.players, oppTeam).filter((p) => p.uid !== userUid);
   }, [match.players, myTeam, userUid]);
 
-  const physicalBoards = useMemo(() => {
-    const physicalIds: PhysicalBoardId[] = ["alpha", "bravo"];
-    return physicalIds.map((physicalId) => {
-      const seatBoards = PHYSICAL_BOARD_SEATS[physicalId]
-        .map((seatId) => boards.find((b) => b.id === seatId))
-        .filter((b): b is BoardDocument => b != null);
-      const status = seatBoards.some((b) => b.boardStatus === "checkmate")
-        ? "checkmate"
-        : seatBoards.some((b) => b.boardStatus === "stalemate")
-          ? "stalemate"
-          : "active";
-      return {
-        physicalId,
-        label: getPhysicalBoardLabel(physicalId),
-        status,
-      };
-    });
-  }, [boards]);
-
   const durationSec = matchDurationSeconds(match);
-  const endLabel = formatMatchEndReason(match, userUid);
+  const reasonTitle = getMatchEndReasonTitle(match, boards);
+  const decisiveBoard = getDecisiveBoardLabel(match, boards);
+  const endLabel = formatMatchEndReason(match, userUid, boards);
 
   useEffect(() => {
     if (soundPlayedRef.current) return;
@@ -117,7 +101,7 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
       {isVictory && <VictoryConfetti active />}
 
       <motion.div
-        className="relative z-10 w-full max-w-lg"
+        className="relative z-10 w-full max-w-3xl"
         initial={{ opacity: 0, y: 24, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
@@ -168,9 +152,24 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
               {headline}
             </h1>
 
-            <p className="text-sm text-muted-foreground max-w-sm mx-auto">{endLabel}</p>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto">{endLabel}</p>
 
-            <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-xs font-semibold uppercase tracking-wide",
+                  reasonTitle === "Checkmate" && "border-red-500/40 text-red-300",
+                  reasonTitle === "Time forfeit" && "border-amber-500/40 text-amber-300",
+                  reasonTitle === "Resignation" && "border-orange-500/40 text-orange-300"
+                )}
+              >
+                {reasonTitle}
+                {decisiveBoard ? ` · ${decisiveBoard}` : ""}
+              </Badge>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
               <Badge variant="secondary" className="capitalize">
                 {match.mode}
               </Badge>
@@ -213,7 +212,7 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
                             ) : null}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {getPhysicalBoardLabelForSeat(player.boardId)} · {player.rating} rating
+                            {getPhysicalBoardLabelForSeat(player.boardId as BoardSeatId)} · {player.rating} rating
                           </p>
                         </div>
                         <Image
@@ -245,7 +244,7 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
                           {player.displayName}
                           <span className="text-muted-foreground">
                             {" "}
-                            · {getPhysicalBoardLabelForSeat(player.boardId)}
+                            · {getPhysicalBoardLabelForSeat(player.boardId as BoardSeatId)}
                           </span>
                         </span>
                       </li>
@@ -255,26 +254,22 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
               </>
             )}
 
-            {physicalBoards.length > 0 && (
-              <section className="rounded-lg border border-primary/10 bg-[#0a0618]/50 px-3 py-2.5">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
-                  Final position
+            {boards.length > 0 && (
+              <section>
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-3">
+                  Final positions
                 </p>
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  {physicalBoards.map((board) => {
-                    const status =
-                      board.status === "checkmate"
-                        ? "Checkmate"
-                        : board.status === "stalemate"
-                          ? "Frozen"
-                          : "Active";
-                    return (
-                      <div key={board.physicalId} className="flex justify-between gap-2">
-                        <span>{board.label}</span>
-                        <span className="text-foreground/80">{status}</span>
-                      </div>
-                    );
-                  })}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <MatchResultBoard
+                    physicalId="alpha"
+                    boards={boards}
+                    players={match.players}
+                  />
+                  <MatchResultBoard
+                    physicalId="bravo"
+                    boards={boards}
+                    players={match.players}
+                  />
                 </div>
               </section>
             )}

@@ -16,13 +16,21 @@ const ICE_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun1.l.google.com:19302" },
 ];
 
+/**
+ * Peer-to-peer voice for a single team. The `roomId` is team-scoped by the
+ * caller (e.g. `${matchId}-team-${team}`) so signaling never reaches the
+ * opposing team, and every signal is additionally addressed to a specific
+ * teammate uid. As a result a player can only ever hear their own teammates.
+ */
 export class VoiceChatManager {
   private peers = new Map<string, RTCPeerConnection>();
+  private pendingCandidates = new Map<string, RTCIceCandidateInit[]>();
   private localStream: MediaStream | null = null;
   private roomId: string;
   private uid: string;
   private unsubSignals: (() => void) | null = null;
   onRemoteStream?: (peerId: string, stream: MediaStream) => void;
+  onPeerDisconnected?: (peerId: string) => void;
 
   constructor(roomId: string, uid: string) {
     this.roomId = roomId;
@@ -31,10 +39,11 @@ export class VoiceChatManager {
 
   async start(): Promise<void> {
     this.localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // Only react to signals explicitly addressed to this player within the team room.
     this.unsubSignals = onSnapshot(
       query(
         collection(getFirebaseDb(), "voiceSignals", this.roomId, "candidates"),
-        where("uid", "!=", this.uid)
+        where("to", "==", this.uid)
       ),
       (snap) => {
         snap.docChanges().forEach((change) => {
@@ -42,8 +51,26 @@ export class VoiceChatManager {
             void this.handleSignal(change.doc.data() as VoiceSignal);
           }
         });
+      },
+      (error) => {
+        console.warn("[voice] signal listener error", error.code, error.message);
       }
     );
+  }
+
+  /**
+   * Establish connections to the given teammate uids. A deterministic initiator
+   * (lower uid offers) avoids both peers creating offers at once (glare).
+   */
+  async connectTo(peerIds: string[]): Promise<void> {
+    for (const peerId of peerIds) {
+      if (!peerId || peerId === this.uid || this.peers.has(peerId)) continue;
+      if (this.uid < peerId) {
+        await this.createOffer(peerId);
+      } else {
+        await this.getOrCreatePeer(peerId);
+      }
+    }
   }
 
   private async getOrCreatePeer(peerId: string): Promise<RTCPeerConnection> {
@@ -64,6 +91,12 @@ export class VoiceChatManager {
       }
     };
 
+    pc.onconnectionstatechange = () => {
+      if (["failed", "closed", "disconnected"].includes(pc.connectionState)) {
+        this.onPeerDisconnected?.(peerId);
+      }
+    };
+
     this.peers.set(peerId, pc);
     return pc;
   }
@@ -80,18 +113,38 @@ export class VoiceChatManager {
 
     if (signal.type === "offer" && signal.sdp) {
       await pc.setRemoteDescription({ type: "offer", sdp: signal.sdp });
+      await this.flushPendingCandidates(signal.uid, pc);
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);
       await this.sendSignal(signal.uid, "answer", { sdp: answer.sdp! });
     } else if (signal.type === "answer" && signal.sdp) {
       await pc.setRemoteDescription({ type: "answer", sdp: signal.sdp });
+      await this.flushPendingCandidates(signal.uid, pc);
     } else if (signal.type === "ice" && signal.candidate) {
-      await pc.addIceCandidate(signal.candidate);
+      if (pc.remoteDescription) {
+        await pc.addIceCandidate(signal.candidate).catch(() => {});
+      } else {
+        const queued = this.pendingCandidates.get(signal.uid) ?? [];
+        queued.push(signal.candidate);
+        this.pendingCandidates.set(signal.uid, queued);
+      }
     }
   }
 
+  private async flushPendingCandidates(
+    peerId: string,
+    pc: RTCPeerConnection
+  ): Promise<void> {
+    const queued = this.pendingCandidates.get(peerId);
+    if (!queued?.length) return;
+    for (const candidate of queued) {
+      await pc.addIceCandidate(candidate).catch(() => {});
+    }
+    this.pendingCandidates.delete(peerId);
+  }
+
   private async sendSignal(
-    _peerId: string,
+    peerId: string,
     type: VoiceSignal["type"],
     data: { sdp?: string; candidate?: RTCIceCandidateInit }
   ): Promise<void> {
@@ -99,6 +152,7 @@ export class VoiceChatManager {
       collection(getFirebaseDb(), "voiceSignals", this.roomId, "candidates"),
       {
         uid: this.uid,
+        to: peerId,
         type,
         ...data,
         createdAt: serverTimestamp(),
@@ -116,6 +170,7 @@ export class VoiceChatManager {
     this.unsubSignals?.();
     this.peers.forEach((pc) => pc.close());
     this.peers.clear();
+    this.pendingCandidates.clear();
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
   }

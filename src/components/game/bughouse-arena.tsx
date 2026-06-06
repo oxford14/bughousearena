@@ -17,6 +17,7 @@ import {
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
 import {
   canDropPiece,
+  getMirrorSeats,
   getSeatColor,
   type BoardSeatId,
   type PieceSymbol,
@@ -59,6 +60,9 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   const [resignOpen, setResignOpen] = useState(false);
   const [resigning, setResigning] = useState(false);
   const [voiceManager, setVoiceManager] = useState<VoiceChatManager | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(
+    new Map()
+  );
   const [selectedPiece, setSelectedPiece] = useState<PieceSymbol | null>(null);
   const prevFensRef = useRef<Map<string, string>>(new Map());
   const boardsInitializedRef = useRef(false);
@@ -74,24 +78,46 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     return boards.slice(0, 2);
   }, [boards, myBoard, partnerBoard]);
 
-  const opponentPlayers = useMemo(() => {
-    if (!myBoard) return [];
-    return match.players.filter((p) => p.team !== myBoard.team);
-  }, [match.players, myBoard]);
+  const { physicalClocks, getBoardClocks, getPhysicalBoardLabel, getPhysicalSeatPlayer } =
+    useMatchClocks(match, boards);
+  const voiceTeammateUids = useMemo(() => {
+    if (!user || !myTeam) return [];
+    const seen = new Set<string>();
+    return match.players
+      .filter((p) => p.team === myTeam && p.uid !== user.uid && !p.isBot)
+      .map((p) => p.uid)
+      .filter((uid) => (seen.has(uid) ? false : (seen.add(uid), true)));
+  }, [match.players, myTeam, user]);
 
   useBotController({ match, boards, humanUid: user?.uid });
-  const { physicalClocks, getBoardClocks, getPhysicalBoardLabel, getSeatLabel } =
-    useMatchClocks(match, boards);
 
   useEffect(() => {
-    if (!user || !match.id) return;
-    const manager = new VoiceChatManager(match.id, user.uid);
+    if (!user || !match.id || !myTeam) return;
+    // Team-scoped room: opponents use a different room and never receive our audio.
+    const roomId = `${match.id}-team-${myTeam}`;
+    const manager = new VoiceChatManager(roomId, user.uid);
+    manager.onRemoteStream = (peerId, stream) => {
+      setRemoteStreams((prev) => new Map(prev).set(peerId, stream));
+    };
+    manager.onPeerDisconnected = (peerId) => {
+      setRemoteStreams((prev) => {
+        const next = new Map(prev);
+        next.delete(peerId);
+        return next;
+      });
+    };
     void manager.start().catch(() => {});
     setVoiceManager(manager);
     return () => {
+      setRemoteStreams(new Map());
       void manager.stop();
     };
-  }, [match.id, user]);
+  }, [match.id, user, myTeam]);
+
+  useEffect(() => {
+    if (!voiceManager || voiceTeammateUids.length === 0) return;
+    void voiceManager.connectTo(voiceTeammateUids).catch(() => {});
+  }, [voiceManager, voiceTeammateUids]);
 
   useEffect(() => {
     if (boards.length === 0) return;
@@ -142,30 +168,35 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     [boards, match.id, play, user]
   );
 
-  const handleDrop = useCallback(
-    async (boardId: string, square: Square) => {
-      if (!user || !selectedPiece) return;
+  const handleDropSync = useCallback(
+    (boardId: string, square: Square, piece?: PieceSymbol): boolean => {
+      if (!user) return false;
+      const dropPiece = piece ?? selectedPiece;
+      if (!dropPiece) return false;
+
       const board = boards.find((b) => b.id === boardId);
-      if (!board || board.playerUid !== user.uid) return;
-      if (board.boardStatus && board.boardStatus !== "active") return;
+      if (!board || board.playerUid !== user.uid) return false;
+      if (board.boardStatus && board.boardStatus !== "active") return false;
 
       const reserve = board.captured as PieceSymbol[];
-      if (!canDropPiece(reserve, selectedPiece)) return;
+      if (!canDropPiece(reserve, dropPiece)) return false;
 
       const seatColor = getSeatColor(boardId as BoardSeatId);
-      const validation = validateDrop(board.fen, selectedPiece, square, seatColor, reserve);
-      if (!validation.valid) return;
+      const validation = validateDrop(board.fen, dropPiece, square, seatColor, reserve);
+      if (!validation.valid) return false;
 
       localMoveBoardRef.current = boardId;
       play("gameDrop");
 
-      await submitMove(
+      void submitMove(
         match.id,
         boardId,
         user.uid,
-        `drop:${selectedPiece}@${square}`
-      );
+        `drop:${dropPiece}@${square}`
+      ).catch(() => {});
+
       setSelectedPiece(null);
+      return true;
     },
     [boards, match.id, play, selectedPiece, user]
   );
@@ -188,6 +219,11 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     const isMine = board.playerUid === user?.uid;
     const isPartner = board.id === myBoard?.partnerBoardId;
     const player = match.players.find((p) => p.uid === board.playerUid);
+    // The opponent shares this physical board on the opposite color seat.
+    const opponentSeatId = getMirrorSeats(board.id as BoardSeatId).find(
+      (s) => s !== board.id
+    );
+    const opponentPlayer = match.players.find((p) => p.boardId === opponentSeatId);
     const boardLabel = isMine ? "Your board" : isPartner ? "Partner board" : "Board";
     const frozen = board.boardStatus === "stalemate";
     const clocks = getBoardClocks(board.id);
@@ -197,6 +233,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
         key={board.id}
         board={board}
         player={player}
+        opponentPlayer={opponentPlayer}
         isMine={isMine && !frozen}
         isPartner={isPartner}
         boardLabel={frozen ? `${boardLabel} (frozen)` : boardLabel}
@@ -210,9 +247,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
         onMove={(sourceSquare, targetSquare) =>
           handleMoveSync(board.id, sourceSquare, targetSquare)
         }
-        onDrop={(square) => {
-          void handleDrop(board.id, square);
-        }}
+        onDropPiece={(square, piece) => handleDropSync(board.id, square, piece)}
       />
     );
   });
@@ -228,35 +263,30 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
                 <p className="text-xs text-muted-foreground mb-1">
                   {getPhysicalBoardLabel(physicalId)}
                 </p>
-                <div className="flex gap-3 text-sm">
-                  <p
-                    className={`font-heading text-lg tabular-nums ${
-                      clocks.whiteRunning ? "text-primary neon-glow" : ""
-                    }`}
-                  >
-                    {getSeatLabel("w", physicalId)}{" "}
-                    {formatClock(clocks.white)}
-                  </p>
-                  <p
-                    className={`font-heading text-lg tabular-nums ${
-                      clocks.blackRunning ? "text-primary neon-glow" : ""
-                    }`}
-                  >
-                    {getSeatLabel("b", physicalId)}{" "}
-                    {formatClock(clocks.black)}
-                  </p>
+                <div className="flex gap-4 text-sm flex-wrap">
+                  {(["w", "b"] as const).map((color) => {
+                    const player = getPhysicalSeatPlayer(physicalId, color);
+                    const time = color === "w" ? clocks.white : clocks.black;
+                    const running =
+                      color === "w" ? clocks.whiteRunning : clocks.blackRunning;
+                    return (
+                      <p
+                        key={color}
+                        className={`font-heading text-lg tabular-nums ${
+                          running ? "text-primary neon-glow" : ""
+                        }`}
+                      >
+                        <span className="font-medium">
+                          {player?.displayName ?? (color === "w" ? "White" : "Black")}
+                        </span>{" "}
+                        {formatClock(time)}
+                      </p>
+                    );
+                  })}
                 </div>
               </div>
             );
           })}
-          {opponentPlayers.length > 0 && (
-            <div className="min-w-0">
-              <p className="text-xs text-muted-foreground">Opponents</p>
-              <p className="text-sm font-medium truncate max-w-[240px]">
-                {opponentPlayers.map((p) => p.displayName).join(" · ")}
-              </p>
-            </div>
-          )}
         </div>
         <div className="flex gap-2">
           <Badge>{match.mode}</Badge>
@@ -327,6 +357,16 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
           />
         ) : null}
       </div>
+
+      {Array.from(remoteStreams.entries()).map(([peerId, stream]) => (
+        <audio
+          key={peerId}
+          autoPlay
+          ref={(el) => {
+            if (el && el.srcObject !== stream) el.srcObject = stream;
+          }}
+        />
+      ))}
     </div>
   );
 }

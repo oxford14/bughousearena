@@ -15,10 +15,43 @@ import { logOut } from "@/lib/firebase/auth";
 import { subscribeToMatchHistory } from "@/lib/social/match-history";
 import type { MatchHistoryEntry } from "@/types/firestore";
 import { formatMatchMode, formatMatchResult } from "@/lib/social/match-history";
-import { formatRankedWinRate } from "@/lib/social/profile-stats";
+import {
+  formatWinRate,
+  getModeWinLoss,
+  type ModeWinLoss,
+} from "@/lib/social/profile-stats";
 import { useRouter } from "next/navigation";
 import { SoundToggle } from "@/components/arena/sound-toggle";
 import { ChangePasswordForm } from "@/components/arena/change-password-form";
+import type { UserProfile } from "@/types/firestore";
+
+function getRankedStats(
+  history: MatchHistoryEntry[],
+  profile: UserProfile | null
+): ModeWinLoss {
+  const fromHistory = getModeWinLoss(history, "ranked");
+  const hasHistory =
+    fromHistory.wins + fromHistory.losses + fromHistory.draws > 0;
+  if (hasHistory) return fromHistory;
+  return {
+    wins: profile?.rankedWins ?? 0,
+    losses: profile?.rankedLosses ?? 0,
+    draws: 0,
+  };
+}
+
+function ModeWinRateCard({ label, stats }: { label: string; stats: ModeWinLoss }) {
+  const winRate = formatWinRate(stats.wins, stats.losses);
+  const record = `${stats.wins}W · ${stats.losses}L`;
+
+  return (
+    <Card className="arena-card border-primary/20 text-center p-4 flex flex-col justify-center">
+      <p className="text-xs uppercase tracking-wider text-muted-foreground mb-1">{label}</p>
+      <p className="text-2xl font-heading text-primary">{winRate}</p>
+      <p className="text-xs text-muted-foreground mt-1">{record}</p>
+    </Card>
+  );
+}
 
 export default function ProfilePage() {
   const { user, profile } = useAuth();
@@ -37,9 +70,9 @@ export default function ProfilePage() {
   }, []);
 
   const tier = profile ? getRankTier(profile.rating) : "pawn";
-  const wins = profile?.rankedWins ?? 0;
-  const losses = profile?.rankedLosses ?? 0;
-  const winRate = formatRankedWinRate(wins, losses);
+
+  const rankedStats = getRankedStats(history, profile);
+  const casualStats = getModeWinLoss(history, "casual");
 
   const handleLogout = async () => {
     await logOut();
@@ -69,20 +102,10 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="arena-card border-primary/20 text-center p-4">
-          <p className="text-2xl font-heading text-primary">{wins}</p>
-          <p className="text-xs text-muted-foreground">Wins</p>
-        </Card>
-        <Card className="arena-card border-primary/20 text-center p-4">
-          <p className="text-2xl font-heading text-primary">{losses}</p>
-          <p className="text-xs text-muted-foreground">Losses</p>
-        </Card>
-        <Card className="arena-card border-primary/20 text-center p-4">
-          <p className="text-2xl font-heading text-primary">{winRate}</p>
-          <p className="text-xs text-muted-foreground">Win Rate</p>
-        </Card>
-        <Card className="arena-card border-primary/20 text-center p-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <ModeWinRateCard label="Ranked" stats={rankedStats} />
+        <ModeWinRateCard label="Casual" stats={casualStats} />
+        <Card className="arena-card border-primary/20 text-center p-4 flex flex-col justify-center">
           <p className="text-2xl font-heading text-primary">{profile?.arenaCoins ?? 0}</p>
           <p className="text-xs text-muted-foreground">Arena Coins</p>
         </Card>

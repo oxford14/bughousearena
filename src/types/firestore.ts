@@ -110,9 +110,15 @@ export interface MatchSetupChatMessage {
   createdAt: Timestamp;
 }
 
+export type ChatScope = "team" | "all";
+
 export interface MatchChatMessage {
   id: string;
   team: 1 | 2;
+  /** "team" reaches only the sender's team; "all" reaches both teams. */
+  scope: ChatScope;
+  /** Teams allowed to read this message (query filter). */
+  audience: (1 | 2)[];
   uid: string;
   displayName: string;
   text: string;
@@ -240,6 +246,8 @@ export interface MatchHistoryEntry {
 export interface VoiceSignal {
   id: string;
   uid: string;
+  /** Target teammate uid this signal is addressed to. */
+  to: string;
   type: "offer" | "answer" | "ice";
   sdp?: string;
   candidate?: RTCIceCandidateInit;

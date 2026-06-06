@@ -21,12 +21,27 @@ interface UseBotControllerOptions {
 }
 
 const POLL_MS = 750;
+const RETRY_MS = 600;
 
-function findBotPlayer(
-  players: MatchPlayer[],
+/** Prefer match.players seating — board.playerUid can lag after color-pick swaps. */
+function getSeatOccupant(
+  match: MatchDocument,
   board: BoardDocument
 ): MatchPlayer | undefined {
-  return players.find((p) => p.uid === board.playerUid);
+  return (
+    match.players.find((p) => p.boardId === board.id) ??
+    match.players.find((p) => p.uid === board.playerUid)
+  );
+}
+
+function isBotSeat(
+  match: MatchDocument,
+  board: BoardDocument
+): MatchPlayer | undefined {
+  const occupant = getSeatOccupant(match, board);
+  if (!occupant) return undefined;
+  if (occupant.isBot || isBotUid(occupant.uid)) return occupant;
+  return undefined;
 }
 
 /** Human client drives all bot moves (teammates and opponents) in bot-filled matches. */
@@ -37,20 +52,15 @@ export function useBotController({
 }: UseBotControllerOptions) {
   const boardsRef = useRef(boards);
   const matchRef = useRef(match);
-  const pendingRef = useRef<Set<string>>(new Set());
-  const timersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const processingRef = useRef(false);
+  const cancelledRef = useRef(false);
 
   boardsRef.current = boards;
   matchRef.current = match;
 
   useEffect(() => {
-    return () => {
-      for (const timer of timersRef.current.values()) clearTimeout(timer);
-      timersRef.current.clear();
-    };
-  }, []);
+    cancelledRef.current = false;
 
-  useEffect(() => {
     if (match.status !== "active") return;
     if (!humanUid) return;
 
@@ -61,65 +71,68 @@ export function useBotController({
     if (!hasBots) return;
     if (!match.playerUids?.includes(humanUid)) return;
 
-    const scheduleBotMoves = () => {
-      const liveMatch = matchRef.current;
-      const liveBoards = boardsRef.current;
+    const runBotLoop = async () => {
+      if (processingRef.current || cancelledRef.current) return;
+      processingRef.current = true;
 
-      for (const board of liveBoards) {
-        if (!isBotUid(board.playerUid)) continue;
+      try {
+        while (!cancelledRef.current) {
+          const liveMatch = matchRef.current;
+          const liveBoards = boardsRef.current;
 
-        if (!isBotBoardTurn(board)) {
-          const timer = timersRef.current.get(board.id);
-          if (timer) {
-            clearTimeout(timer);
-            timersRef.current.delete(board.id);
+          const botBoard = liveBoards.find((board) => {
+            const bot = isBotSeat(liveMatch, board);
+            if (!bot) return false;
+            return isBotBoardTurn(board, bot.uid);
+          });
+
+          if (!botBoard) break;
+
+          const bot = isBotSeat(liveMatch, botBoard)!;
+          const skill = getBotSkillForMember(bot);
+          await new Promise((resolve) =>
+            setTimeout(resolve, botThinkDelayMs(skill))
+          );
+          if (cancelledRef.current) break;
+
+          try {
+            await executeBotTurn(
+              liveMatch.id,
+              botBoard.id,
+              bot.uid,
+              skill,
+              () => boardsRef.current.find((b) => b.id === botBoard.id)
+            );
+          } catch (err) {
+            console.warn("[bot] move failed", botBoard.id, err);
+            await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
           }
-          pendingRef.current.delete(board.id);
-          continue;
         }
-
-        if (pendingRef.current.has(board.id)) continue;
-        if (timersRef.current.has(board.id)) continue;
-
-        const botPlayer = findBotPlayer(liveMatch.players, board);
-        const skill = getBotSkillForMember(botPlayer ?? { rating: 1200 });
-        const delay = botThinkDelayMs(skill);
-        const boardId = board.id;
-
-        pendingRef.current.add(boardId);
-
-        const timer = setTimeout(() => {
-          timersRef.current.delete(boardId);
-          void executeBotTurn(liveMatch.id, boardId, skill, () =>
-            boardsRef.current.find((b) => b.id === boardId)
-          )
-            .catch((err) => {
-              console.warn("[bot] move failed", boardId, err);
-            })
-            .finally(() => {
-              pendingRef.current.delete(boardId);
-            });
-        }, delay);
-
-        timersRef.current.set(boardId, timer);
+      } finally {
+        processingRef.current = false;
       }
     };
 
-    scheduleBotMoves();
-    const interval = setInterval(scheduleBotMoves, POLL_MS);
-    return () => clearInterval(interval);
-  }, [boards, humanUid, match.hasBots, match.id, match.playerUids, match.status]);
+    void runBotLoop();
+    const interval = setInterval(() => void runBotLoop(), POLL_MS);
+
+    return () => {
+      cancelledRef.current = true;
+      clearInterval(interval);
+    };
+  }, [humanUid, match.hasBots, match.id, match.playerUids, match.status]);
 }
 
 async function executeBotTurn(
   matchId: string,
   boardId: string,
+  playerId: string,
   skill: ReturnType<typeof getBotSkillForMember>,
   getBoard: () => BoardDocument | undefined
 ) {
   const board = getBoard();
   if (!board) throw new Error("Board not found");
-  if (!isBotBoardTurn(board)) throw new Error("Not bot turn");
+  if (!isBotBoardTurn(board, playerId)) throw new Error("Not bot turn");
 
   const seatColor = getSeatColor(boardId as BoardSeatId);
   const reserve = board.captured as PieceSymbol[];
@@ -138,7 +151,7 @@ async function executeBotTurn(
         await submitMove(
           matchId,
           boardId,
-          board.playerUid,
+          playerId,
           `drop:${drop.piece}@${drop.square}`
         );
         return;
@@ -154,5 +167,5 @@ async function executeBotTurn(
     throw new Error(validation.error ?? "Invalid bot move");
   }
 
-  await submitMove(matchId, boardId, board.playerUid, move);
+  await submitMove(matchId, boardId, playerId, move);
 }

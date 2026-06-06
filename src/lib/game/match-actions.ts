@@ -4,9 +4,11 @@ import {
   doc,
   getDoc,
   getDocs,
+  runTransaction,
   serverTimestamp,
   writeBatch,
-  type WriteBatch,
+  type DocumentData,
+  type DocumentReference,
 } from "firebase/firestore";
 import { Chess, type Square } from "chess.js";
 import { getFirebaseDb } from "@/lib/firebase/config";
@@ -138,15 +140,23 @@ function loadSnapshotFromBoards(boards: BoardDocument[]) {
   );
 }
 
-/** Persist every seat doc — partner reserves live on the other physical board. */
-function writeAllSeatsToBatch(
-  batch: WriteBatch,
+type SeatUpdater = (ref: DocumentReference, data: DocumentData) => void;
+
+/**
+ * Persist every seat doc — partner reserves live on the other physical board.
+ * Must run inside a transaction so concurrent moves on the two physical boards
+ * don't clobber each other's FEN/turn/reserve state.
+ */
+function writeAllSeats(
+  update: SeatUpdater,
   matchId: string,
   boards: BoardDocument[],
   snapshot: BughouseSnapshot,
   actingSeatId?: BoardSeatId,
-  lastMove?: string
+  lastMove?: string,
+  matchPlayers?: MatchDocument["players"]
 ) {
+  const db = getFirebaseDb();
   for (const seatId of BOARD_IDS) {
     const existing = boards.find((b) => b.id === seatId);
     if (!existing) continue;
@@ -154,11 +164,14 @@ function writeAllSeatsToBatch(
     const physicalId = getPhysicalBoard(seatId);
     const physical = snapshot.physical[physicalId];
     const seat = snapshot.seats[seatId];
+    const seatedPlayer = matchPlayers?.find((p) => p.boardId === seatId);
 
-    batch.update(
-      doc(getFirebaseDb(), "matches", matchId, "boards", seatId),
+    update(
+      doc(db, "matches", matchId, "boards", seatId),
       serializeBoard({
         ...existing,
+        playerUid: seatedPlayer?.uid ?? existing.playerUid,
+        playerColor: seatedPlayer?.playerColor ?? existing.playerColor,
         fen: physical.fen,
         captured: seat.reserve,
         turn: physical.fen.includes(" w ") ? "w" : "b",
@@ -203,82 +216,131 @@ function parseAction(
   return { type: "move", seatId: boardId, move, promotion };
 }
 
-/** Server-side Bughouse move validation and atomic board updates. */
+/**
+ * Server-side Bughouse move validation and atomic board updates.
+ *
+ * Runs inside a Firestore transaction so concurrent moves on the two physical
+ * boards (e.g. a human on Alpha and a bot on Bravo) re-read fresh state and
+ * retry on conflict instead of clobbering each other's FEN/turn/reserve.
+ */
 export async function submitValidatedMove(
   params: SubmitMoveParams
 ): Promise<SubmitMoveResult> {
-  const ctx = await loadMatchContext(params.matchId);
-  if (!ctx) return { ok: false, error: "Match not found" };
-
-  const { match, boards, db } = ctx;
-  if (match.status !== "active") {
-    return { ok: false, error: "Match is not active" };
-  }
-
+  const db = getFirebaseDb();
+  const matchRef = doc(db, "matches", params.matchId);
   const boardId = params.boardId as BoardSeatId;
-  const board = boards.find((b) => b.id === boardId);
-  if (!board || board.playerUid !== params.playerId) {
-    return { ok: false, error: "Not your board" };
-  }
-
-  if (board.boardStatus && board.boardStatus !== "active") {
-    return { ok: false, error: "This board is frozen" };
-  }
-
-  const snapshot = tickAllPhysicalClocks(
-    loadSnapshotFromBoards(boards),
-    Date.now()
-  );
-
-  const timeForfeit = evaluateMatchEnd(snapshot);
-  if (timeForfeit.ended && timeForfeit.reason === "time_forfeit" && timeForfeit.winnerTeam) {
-    await persistSnapshotBoards(params.matchId, boards, snapshot, {
-      complete: { winnerTeam: timeForfeit.winnerTeam, endReason: "time_forfeit" },
-    });
-    return { ok: false, error: "Clock expired" };
-  }
-
-  const action = parseAction(boardId, params.move, params.promotion);
-  if (!action) return { ok: false, error: "Invalid action" };
-
-  const result = applyAction(snapshot, action, Date.now());
-  if (!result.valid || !result.snapshot) {
-    return { ok: false, error: result.error ?? "Illegal action" };
-  }
-
-  const batch = writeBatch(db);
-  writeAllSeatsToBatch(batch, params.matchId, boards, result.snapshot, boardId, params.move);
-
-  if (result.matchEnded && result.winnerTeam) {
-    batch.update(
-      doc(db, "matches", params.matchId),
-      completeMatchUpdate(result.winnerTeam, "checkmate")
-    );
-  } else {
-    const postMoveEnd = evaluateMatchEnd(result.snapshot);
-    if (postMoveEnd.ended && postMoveEnd.reason === "time_forfeit" && postMoveEnd.winnerTeam) {
-      batch.update(
-        doc(db, "matches", params.matchId),
-        completeMatchUpdate(postMoveEnd.winnerTeam, "time_forfeit")
-      );
-    }
-  }
-
-  await batch.commit();
 
   try {
-    await addDoc(collection(db, "matches", params.matchId, "moves"), {
-      boardId,
-      playerId: params.playerId,
-      move: params.move,
-      validated: true,
-      createdAt: serverTimestamp(),
-    });
-  } catch (error) {
-    console.warn("[match-actions] move audit log failed", error);
-  }
+    const outcome = await runTransaction<SubmitMoveResult>(db, async (tx) => {
+      const matchSnap = await tx.get(matchRef);
+      if (!matchSnap.exists()) return { ok: false, error: "Match not found" };
 
-  return { ok: true };
+      const match = { id: matchSnap.id, ...matchSnap.data() } as MatchDocument;
+      if (match.status !== "active") {
+        return { ok: false, error: "Match is not active" };
+      }
+
+      const boardRefs = BOARD_IDS.map((id) =>
+        doc(db, "matches", params.matchId, "boards", id)
+      );
+      const boardSnaps = await Promise.all(boardRefs.map((ref) => tx.get(ref)));
+      const boards = boardSnaps
+        .filter((s) => s.exists())
+        .map((s) => ({ id: s.id, ...s.data() }) as BoardDocument);
+
+      const board = boards.find((b) => b.id === boardId);
+      const seatOwner = match.players.find((p) => p.boardId === boardId);
+      const ownerUid = seatOwner?.uid ?? board?.playerUid;
+      if (!board || ownerUid !== params.playerId) {
+        return { ok: false, error: "Not your board" };
+      }
+      if (board.boardStatus && board.boardStatus !== "active") {
+        return { ok: false, error: "This board is frozen" };
+      }
+
+      const snapshot = tickAllPhysicalClocks(
+        loadSnapshotFromBoards(boards),
+        Date.now()
+      );
+
+      const timeForfeit = evaluateMatchEnd(snapshot);
+      if (
+        timeForfeit.ended &&
+        timeForfeit.reason === "time_forfeit" &&
+        timeForfeit.winnerTeam
+      ) {
+        writeAllSeats(
+          (ref, data) => tx.update(ref, data),
+          params.matchId,
+          boards,
+          snapshot,
+          undefined,
+          undefined,
+          match.players
+        );
+        tx.update(matchRef, completeMatchUpdate(timeForfeit.winnerTeam, "time_forfeit"));
+        return { ok: false, error: "Clock expired" };
+      }
+
+      const action = parseAction(boardId, params.move, params.promotion);
+      if (!action) return { ok: false, error: "Invalid action" };
+
+      const result = applyAction(snapshot, action, Date.now());
+      if (!result.valid || !result.snapshot) {
+        return { ok: false, error: result.error ?? "Illegal action" };
+      }
+
+      writeAllSeats(
+        (ref, data) => tx.update(ref, data),
+        params.matchId,
+        boards,
+        result.snapshot,
+        boardId,
+        params.move,
+        match.players
+      );
+
+      if (result.matchEnded && result.winnerTeam) {
+        tx.update(matchRef, completeMatchUpdate(result.winnerTeam, "checkmate"));
+      } else {
+        const postMoveEnd = evaluateMatchEnd(result.snapshot);
+        if (
+          postMoveEnd.ended &&
+          postMoveEnd.reason === "time_forfeit" &&
+          postMoveEnd.winnerTeam
+        ) {
+          tx.update(
+            matchRef,
+            completeMatchUpdate(postMoveEnd.winnerTeam, "time_forfeit")
+          );
+        }
+      }
+
+      return { ok: true };
+    });
+
+    if (outcome.ok) {
+      try {
+        await addDoc(collection(db, "matches", params.matchId, "moves"), {
+          boardId,
+          playerId: params.playerId,
+          move: params.move,
+          validated: true,
+          createdAt: serverTimestamp(),
+        });
+      } catch (error) {
+        console.warn("[match-actions] move audit log failed", error);
+      }
+    }
+
+    return outcome;
+  } catch (error) {
+    console.warn("[match-actions] move transaction failed", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Move failed",
+    };
+  }
 }
 
 /** Sync clocks and end the match when a physical-board clock hits zero. */

@@ -17,9 +17,9 @@ import { serializeMatchPlayer, serializeBoard } from "@/lib/firebase/firestore-w
 import {
   MATCH_SETUP_DURATION_SEC,
   dedupePlayersByUid,
-  resolveMatchColors,
+  resolveTeamSeating,
 } from "@/lib/game/match-setup";
-import { BOARD_IDS } from "@/lib/game/bughouse-engine";
+import { BOARD_IDS, getSeatColor, type BoardSeatId } from "@/lib/game/bughouse-engine";
 import type {
   MatchDocument,
   MatchSetupChatMessage,
@@ -103,12 +103,8 @@ export async function finalizeMatchSetup(matchId: string): Promise<boolean> {
 
     const choices = match.colorChoices ?? {};
     const players = dedupePlayersByUid(match.players);
-    const resolved = resolveMatchColors(players, choices);
-
-    const updatedPlayers = players.map((player) => ({
-      ...player,
-      playerColor: resolved[player.uid] ?? player.playerColor,
-    }));
+    // Seat players on the board matching their chosen color (may swap boards).
+    const updatedPlayers = resolveTeamSeating(players, choices);
 
     transaction.update(matchRef, {
       status: "active",
@@ -117,18 +113,17 @@ export async function finalizeMatchSetup(matchId: string): Promise<boolean> {
       setupEndsAt: null,
     });
 
-    const nowMs = Date.now();
+    // Reassign each board's occupant (seats can swap) and pause clocks until
+    // the first move is played on that board.
     for (const boardId of BOARD_IDS) {
       const player = updatedPlayers.find((p) => p.boardId === boardId);
       const boardRef = doc(db, "matches", matchId, "boards", boardId);
-      const payload: Record<string, unknown> = {
-        clockRunning: "w",
-        clockUpdatedAtMs: nowMs,
-      };
-      if (player?.playerColor) {
-        payload.playerColor = player.playerColor;
-      }
-      transaction.update(boardRef, payload);
+      transaction.update(boardRef, {
+        clockRunning: null,
+        clockUpdatedAtMs: null,
+        playerUid: player?.uid ?? "",
+        playerColor: player?.playerColor ?? getSeatColor(boardId as BoardSeatId),
+      });
     }
 
     return true;

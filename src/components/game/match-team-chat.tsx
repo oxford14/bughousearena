@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { QUICK_CHAT_TEMPLATES } from "@/lib/game/quick-chat-templates";
@@ -9,6 +10,7 @@ import {
   sendMatchTeamChat,
   subscribeMatchTeamChat,
 } from "@/lib/game/match-chat-service";
+import type { ChatScope, MatchChatMessage } from "@/types/firestore";
 import { cn } from "@/lib/utils";
 
 interface MatchTeamChatProps {
@@ -27,9 +29,8 @@ export function MatchTeamChat({
   disabled = false,
 }: MatchTeamChatProps) {
   const [chatText, setChatText] = useState("");
-  const [messages, setMessages] = useState<
-    { id: string; uid: string; displayName: string; text: string; templateId?: string }[]
-  >([]);
+  const [scope, setScope] = useState<ChatScope>("team");
+  const [messages, setMessages] = useState<MatchChatMessage[]>([]);
   const [sending, setSending] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -45,8 +46,11 @@ export function MatchTeamChat({
     if (disabled || sending || !text.trim()) return;
     setSending(true);
     try {
-      await sendMatchTeamChat(matchId, team, myUid, myDisplayName, text, templateId);
+      await sendMatchTeamChat(matchId, team, myUid, myDisplayName, text, scope, templateId);
       if (!templateId) setChatText("");
+    } catch (error) {
+      console.warn("[match-chat] send failed", error);
+      toast.error("Could not send message. Try again.");
     } finally {
       setSending(false);
     }
@@ -56,10 +60,24 @@ export function MatchTeamChat({
     <div className="flex flex-col rounded-xl border border-primary/25 bg-[#0a0618]/70 h-full min-h-[280px]">
       <div className="flex items-center gap-2 border-b border-primary/20 px-3 py-2.5 text-sm font-medium">
         <MessageCircle className="h-4 w-4 text-secondary shrink-0" />
-        <span>Team chat</span>
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground ml-auto">
-          No mic needed
-        </span>
+        <span>Match chat</span>
+        <div className="ml-auto flex items-center rounded-full border border-primary/30 p-0.5 text-[11px]">
+          {(["team", "all"] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setScope(value)}
+              className={cn(
+                "rounded-full px-2.5 py-0.5 capitalize transition-colors cursor-pointer",
+                scope === value
+                  ? "bg-primary/30 text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-1.5 px-2 py-2 border-b border-primary/15">
@@ -94,8 +112,13 @@ export function MatchTeamChat({
                 msg.uid === myUid ? "bg-primary/20 ml-4" : "bg-muted/40 mr-4"
               )}
             >
-              <span className="text-[10px] uppercase tracking-wider text-secondary block mb-0.5">
+              <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-secondary mb-0.5">
                 {msg.uid === myUid ? "You" : msg.displayName}
+                {msg.scope === "all" ? (
+                  <span className="rounded-sm bg-secondary/20 px-1 text-[9px] text-secondary">
+                    All
+                  </span>
+                ) : null}
               </span>
               {msg.text}
             </div>
@@ -114,7 +137,7 @@ export function MatchTeamChat({
         <Input
           value={chatText}
           onChange={(e) => setChatText(e.target.value)}
-          placeholder="Message your team…"
+          placeholder={scope === "all" ? "Message everyone…" : "Message your team…"}
           maxLength={500}
           disabled={disabled || sending}
           className="h-9 text-sm"
