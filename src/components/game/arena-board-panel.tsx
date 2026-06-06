@@ -116,6 +116,7 @@ export function ArenaBoardPanel({
         boardOrientation,
         allowDragging: isMine,
         allowDragOffBoard: false,
+        animationDurationInMs: 0,
         validDropSquares,
         hoverSquare,
         canDragPiece: ({ isSparePiece, piece }) => {

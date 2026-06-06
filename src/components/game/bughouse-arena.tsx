@@ -30,6 +30,7 @@ import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import { useBotController } from "@/hooks/use-bot-controller";
 import { useMatchClocks } from "@/hooks/use-match-clocks";
+import { useOptimisticBoards } from "@/hooks/use-optimistic-boards";
 import { ArenaBoardPanel } from "@/components/game/arena-board-panel";
 import { MatchTeamChat } from "@/components/game/match-team-chat";
 
@@ -72,14 +73,22 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   const partnerBoard = boards.find((b) => b.id === myBoard?.partnerBoardId);
   const myTeam = myBoard?.team ?? match.players.find((p) => p.uid === user?.uid)?.team;
 
+  const { displayBoards, applyOptimistic, clearOptimistic } = useOptimisticBoards(boards);
+
   const visibleBoards = useMemo(() => {
-    if (myBoard && partnerBoard) return [myBoard, partnerBoard];
-    if (myBoard) return [myBoard];
-    return boards.slice(0, 2);
-  }, [boards, myBoard, partnerBoard]);
+    const myDisplayBoard = displayBoards.find((b) => b.playerUid === user?.uid);
+    const partnerDisplayBoard = displayBoards.find(
+      (b) => b.id === myDisplayBoard?.partnerBoardId
+    );
+    if (myDisplayBoard && partnerDisplayBoard) {
+      return [myDisplayBoard, partnerDisplayBoard];
+    }
+    if (myDisplayBoard) return [myDisplayBoard];
+    return displayBoards.slice(0, 2);
+  }, [displayBoards, user?.uid]);
 
   const { physicalClocks, getBoardClocks, getPhysicalBoardLabel, getPhysicalSeatPlayer } =
-    useMatchClocks(match, boards);
+    useMatchClocks(match, displayBoards);
   const voiceTeammateUids = useMemo(() => {
     if (!user || !myTeam) return [];
     const seen = new Set<string>();
@@ -120,17 +129,17 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   }, [voiceManager, voiceTeammateUids]);
 
   useEffect(() => {
-    if (boards.length === 0) return;
+    if (displayBoards.length === 0) return;
 
     if (!boardsInitializedRef.current) {
-      for (const board of boards) {
+      for (const board of displayBoards) {
         prevFensRef.current.set(board.id, board.fen);
       }
       boardsInitializedRef.current = true;
       return;
     }
 
-    for (const board of boards) {
+    for (const board of displayBoards) {
       const prev = prevFensRef.current.get(board.id);
       if (prev && prev !== board.fen) {
         if (localMoveBoardRef.current === board.id) {
@@ -141,12 +150,12 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
         prevFensRef.current.set(board.id, board.fen);
       }
     }
-  }, [boards, play]);
+  }, [displayBoards, play]);
 
   const handleMoveSync = useCallback(
     (boardId: string, sourceSquare: string, targetSquare: string): boolean => {
       if (!user) return false;
-      const board = boards.find((b) => b.id === boardId);
+      const board = displayBoards.find((b) => b.id === boardId);
       if (!board || board.playerUid !== user.uid) return false;
       if (board.boardStatus && board.boardStatus !== "active") return false;
 
@@ -156,16 +165,21 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       const validation = validateMove(board.fen, uci, seatColor, promotion);
       if (!validation.valid) return false;
 
+      if (!applyOptimistic(boardId, uci, promotion)) return false;
+
       localMoveBoardRef.current = boardId;
       play(validation.capturedPiece ? "gameCapture" : "gameMove");
 
       void submitMove(match.id, boardId, user.uid, uci, undefined, undefined, promotion).catch(
-        () => {}
+        () => {
+          clearOptimistic();
+          toast.error("Move could not be saved. Try again.");
+        }
       );
 
       return true;
     },
-    [boards, match.id, play, user]
+    [applyOptimistic, clearOptimistic, displayBoards, match.id, play, user]
   );
 
   const handleDropSync = useCallback(
@@ -174,7 +188,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       const dropPiece = piece ?? selectedPiece;
       if (!dropPiece) return false;
 
-      const board = boards.find((b) => b.id === boardId);
+      const board = displayBoards.find((b) => b.id === boardId);
       if (!board || board.playerUid !== user.uid) return false;
       if (board.boardStatus && board.boardStatus !== "active") return false;
 
@@ -185,20 +199,21 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       const validation = validateDrop(board.fen, dropPiece, square, seatColor, reserve);
       if (!validation.valid) return false;
 
+      const move = `drop:${dropPiece}@${square}`;
+      if (!applyOptimistic(boardId, move)) return false;
+
       localMoveBoardRef.current = boardId;
       play("gameDrop");
 
-      void submitMove(
-        match.id,
-        boardId,
-        user.uid,
-        `drop:${dropPiece}@${square}`
-      ).catch(() => {});
+      void submitMove(match.id, boardId, user.uid, move).catch(() => {
+        clearOptimistic();
+        toast.error("Drop could not be saved. Try again.");
+      });
 
       setSelectedPiece(null);
       return true;
     },
-    [boards, match.id, play, selectedPiece, user]
+    [applyOptimistic, clearOptimistic, displayBoards, match.id, play, selectedPiece, user]
   );
 
   const handleResign = useCallback(async () => {
