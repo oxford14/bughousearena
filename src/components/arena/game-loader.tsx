@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { motion } from "framer-motion";
@@ -11,13 +11,15 @@ import {
   preloadGameModules,
 } from "@/lib/asset-manifest";
 import { getFirebaseApp } from "@/lib/firebase/config";
+import { registerArenaServiceWorker } from "@/lib/pwa/register-service-worker";
+import { playSound } from "@/lib/sound/sound-manager";
 import { useAuth } from "@/providers/auth-provider";
-import { useSound } from "@/providers/sound-provider";
 
 export function GameLoader() {
   const router = useRouter();
   const { user } = useAuth();
-  const { play } = useSound();
+  const userRef = useRef(user);
+  userRef.current = user;
   const [progress, setProgress] = useState(0);
   const [label, setLabel] = useState<string>(LOADER_STAGES[0]!.label);
 
@@ -33,13 +35,7 @@ export function GameLoader() {
       };
 
       update(5, LOADER_STAGES[0]!.label);
-      if ("serviceWorker" in navigator) {
-        try {
-          await navigator.serviceWorker.register("/sw.js");
-        } catch {
-          /* SW optional in dev */
-        }
-      }
+      void registerArenaServiceWorker();
       update(10, LOADER_STAGES[0]!.label);
 
       update(15, LOADER_STAGES[1]!.label);
@@ -54,11 +50,13 @@ export function GameLoader() {
       await preloadGameModules(update);
 
       update(100, LOADER_STAGES[5]!.label);
-      play("loaderComplete");
+      playSound("loaderComplete");
       await new Promise((r) => setTimeout(r, 600));
 
       if (!cancelled) {
-        router.replace(user ? "/app/lobby" : "/login?next=/app/lobby");
+        router.replace(
+          userRef.current ? "/app/lobby" : "/login?next=/app/lobby"
+        );
       }
     }
 
@@ -66,7 +64,7 @@ export function GameLoader() {
     return () => {
       cancelled = true;
     };
-  }, [router, user, play]);
+  }, [router]);
 
   return (
     <div className="relative min-h-screen flex flex-col items-center justify-center overflow-hidden">

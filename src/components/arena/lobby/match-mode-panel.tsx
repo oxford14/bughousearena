@@ -23,6 +23,9 @@ interface MatchModePanelProps {
   onQueue: () => void;
   onCancel: () => void;
   privateHref?: string;
+  timeControlOptions?: readonly { seconds: number; label: string; shortLabel: string }[];
+  selectedTimeControl?: number;
+  onTimeControlChange?: (seconds: number) => void;
 }
 
 export function MatchModePanel({
@@ -39,6 +42,9 @@ export function MatchModePanel({
   onQueue,
   onCancel,
   privateHref,
+  timeControlOptions,
+  selectedTimeControl,
+  onTimeControlChange,
 }: MatchModePanelProps) {
   return (
     <motion.div
@@ -62,6 +68,37 @@ export function MatchModePanel({
         <div className="min-w-0 flex-1">
           <h3 className="font-heading text-xl mb-1">{title}</h3>
           <p className="text-sm text-muted-foreground mb-4">{description}</p>
+
+          {timeControlOptions && timeControlOptions.length > 0 && !searching ? (
+            <div className="mb-4">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                Time control
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {timeControlOptions.map((option) => {
+                  const active = selectedTimeControl === option.seconds;
+                  return (
+                    <button
+                      key={option.seconds}
+                      type="button"
+                      disabled={!canQueue}
+                      onClick={() => onTimeControlChange?.(option.seconds)}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+                        active
+                          ? "border-primary bg-primary/20 text-primary"
+                          : "border-primary/25 bg-muted/20 text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                        !canQueue && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {option.label}
+                      <span className="ml-1.5 text-xs opacity-70">{option.shortLabel}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {mode === "private" && privateHref ? (
             <Link

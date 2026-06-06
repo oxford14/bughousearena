@@ -74,48 +74,48 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
     },
     knight: {
       tier: "knight",
-      captureWeight: 0.72,
-      checkWeight: 0.48,
-      dropChance: 0.18,
-      blunderChance: 0.1,
-      thinkMinMs: 550,
-      thinkMaxMs: 1400,
+      captureWeight: 0.62,
+      checkWeight: 0.4,
+      dropChance: 0.14,
+      blunderChance: 0.12,
+      thinkMinMs: 480,
+      thinkMaxMs: 1150,
     },
     bishop: {
       tier: "bishop",
-      captureWeight: 0.82,
-      checkWeight: 0.58,
-      dropChance: 0.22,
-      blunderChance: 0.06,
-      thinkMinMs: 650,
-      thinkMaxMs: 1600,
+      captureWeight: 0.68,
+      checkWeight: 0.46,
+      dropChance: 0.16,
+      blunderChance: 0.1,
+      thinkMinMs: 540,
+      thinkMaxMs: 1300,
     },
     rook: {
       tier: "rook",
-      captureWeight: 0.9,
-      checkWeight: 0.68,
-      dropChance: 0.28,
-      blunderChance: 0.03,
-      thinkMinMs: 750,
-      thinkMaxMs: 1900,
+      captureWeight: 0.78,
+      checkWeight: 0.56,
+      dropChance: 0.2,
+      blunderChance: 0.06,
+      thinkMinMs: 620,
+      thinkMaxMs: 1500,
     },
     queen: {
       tier: "queen",
-      captureWeight: 0.96,
-      checkWeight: 0.78,
-      dropChance: 0.34,
-      blunderChance: 0.015,
-      thinkMinMs: 850,
-      thinkMaxMs: 2200,
+      captureWeight: 0.88,
+      checkWeight: 0.66,
+      dropChance: 0.26,
+      blunderChance: 0.03,
+      thinkMinMs: 700,
+      thinkMaxMs: 1750,
     },
     king: {
       tier: "king",
-      captureWeight: 1,
-      checkWeight: 0.88,
-      dropChance: 0.4,
-      blunderChance: 0.005,
-      thinkMinMs: 1000,
-      thinkMaxMs: 2600,
+      captureWeight: 0.94,
+      checkWeight: 0.78,
+      dropChance: 0.32,
+      blunderChance: 0.015,
+      thinkMinMs: 800,
+      thinkMaxMs: 2100,
     },
   };
   return profiles[rank];
@@ -129,3 +129,72 @@ export const RANK_TIER_ORDER: RankTier[] = [
   "queen",
   "king",
 ];
+
+const TIER_RATING_FLOOR: Record<RankTier, number> = {
+  pawn: 0,
+  knight: 1200,
+  bishop: 1400,
+  rook: 1600,
+  queen: 1900,
+  king: 2200,
+};
+
+function bumpRankTier(tier: RankTier, steps: number): RankTier {
+  const idx = RANK_TIER_ORDER.indexOf(tier);
+  const next = Math.min(Math.max(idx + steps, 0), RANK_TIER_ORDER.length - 1);
+  return RANK_TIER_ORDER[next]!;
+}
+
+function lerpSkillProfile(
+  a: BotSkillProfile,
+  b: BotSkillProfile,
+  t: number
+): BotSkillProfile {
+  const mix = (x: number, y: number) => x + (y - x) * t;
+  return {
+    tier: t >= 0.5 ? b.tier : a.tier,
+    captureWeight: mix(a.captureWeight, b.captureWeight),
+    checkWeight: mix(a.checkWeight, b.checkWeight),
+    dropChance: mix(a.dropChance, b.dropChance),
+    blunderChance: mix(a.blunderChance, b.blunderChance),
+    thinkMinMs: Math.round(mix(a.thinkMinMs, b.thinkMinMs)),
+    thinkMaxMs: Math.round(mix(a.thinkMaxMs, b.thinkMaxMs)),
+  };
+}
+
+/** Visible rank badge / bot name — matches the human queue rating. */
+export function getBotDisplayTier(rating: number): RankTier {
+  return getRankTier(rating);
+}
+
+/**
+ * Actual bot strength — one tier above display (min Knight), capped at King.
+ * Stored on match players as `botSkill`; UI still uses `rankTier` for labels.
+ */
+export function getBotPlayTier(rating: number): RankTier {
+  const display = getRankTier(rating);
+  const bumped = bumpRankTier(display, 1);
+  const knightIdx = RANK_TIER_ORDER.indexOf("knight");
+  const bumpedIdx = RANK_TIER_ORDER.indexOf(bumped);
+  return RANK_TIER_ORDER[Math.max(bumpedIdx, knightIdx)]!;
+}
+
+/** Skill profile scaled to rating within the current rank band. */
+export function getBotSkillForRating(rating: number): BotSkillProfile {
+  const playTier = getBotPlayTier(rating);
+  const displayTier = getRankTier(rating);
+  const floor = TIER_RATING_FLOOR[displayTier];
+  const nextDisplay = bumpRankTier(displayTier, 1);
+  const ceiling =
+    nextDisplay === displayTier
+      ? floor + 200
+      : TIER_RATING_FLOOR[nextDisplay];
+  const span = Math.max(ceiling - floor, 1);
+  const t = Math.min(1, Math.max(0, (rating - floor) / span));
+  const nextPlay = bumpRankTier(playTier, 1);
+  return lerpSkillProfile(
+    getBotSkillProfile(playTier),
+    getBotSkillProfile(nextPlay),
+    t
+  );
+}

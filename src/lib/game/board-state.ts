@@ -10,7 +10,10 @@ import {
 
 const INITIAL_CLOCK = 300;
 
-export function createInitialBoards(players: MatchPlayer[]): BoardDocument[] {
+export function createInitialBoards(
+  players: MatchPlayer[],
+  initialClockSec = INITIAL_CLOCK
+): BoardDocument[] {
   const alphaFen = getInitialFen();
   const bravoFen = getInitialFen();
 
@@ -32,8 +35,8 @@ export function createInitialBoards(players: MatchPlayer[]): BoardDocument[] {
       playerColor: player?.playerColor ?? getSeatColor(boardId),
       promotedSquares: [],
       boardStatus: "active",
-      whiteClock: INITIAL_CLOCK,
-      blackClock: INITIAL_CLOCK,
+      whiteClock: initialClockSec,
+      blackClock: initialClockSec,
       isCheck: false,
       isGameOver: false,
     };

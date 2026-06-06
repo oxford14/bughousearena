@@ -6,6 +6,15 @@ import { validateDrop } from "./move-validator";
 import { isBotUid } from "./bots";
 import type { BotSkillProfile } from "./ranks";
 
+const CAPTURE_VALUE: Record<string, number> = {
+  p: 1,
+  n: 3,
+  b: 3,
+  r: 5,
+  q: 9,
+  k: 0,
+};
+
 function pickRandom<T>(items: T[]): T | null {
   if (items.length === 0) return null;
   return items[Math.floor(Math.random() * items.length)]!;
@@ -23,24 +32,28 @@ function pickWeightedMove(
   }
 
   const scored = moves.map((move) => {
-    let score = 0;
-    if (move.captured) score += skill.captureWeight;
+    let score = Math.random() * 0.08;
+    if (move.captured) {
+      score +=
+        skill.captureWeight * (CAPTURE_VALUE[move.captured] ?? 1);
+    }
     if (move.san.includes("+")) score += skill.checkWeight;
-    if (move.san.includes("#")) score += 2;
-    if (move.san.includes("x")) score += 0.08;
+    if (move.san.includes("#")) score += 1.5;
     return { move, score };
   });
 
   scored.sort((a, b) => b.score - a.score);
 
-  const topPool =
-    skill.tier === "pawn" || skill.tier === "knight"
-      ? scored.slice(0, Math.min(3, scored.length))
-      : skill.tier === "bishop" || skill.tier === "rook"
-        ? scored.slice(0, Math.min(2, scored.length))
-        : scored.slice(0, 1);
-
-  const pick = pickRandom(topPool)?.move ?? scored[0]!.move;
+  const topCount =
+    skill.tier === "pawn"
+      ? 4
+      : skill.tier === "knight"
+        ? 3
+        : skill.tier === "bishop"
+          ? 2
+          : 1;
+  const top = scored.slice(0, Math.min(topCount, scored.length));
+  const pick = pickRandom(top)?.move ?? scored[0]!.move;
   return `${pick.from}${pick.to}`;
 }
 
@@ -50,44 +63,28 @@ export function chooseBotMove(fen: string, skill: BotSkillProfile): string | nul
   return pickWeightedMove(moves, skill);
 }
 
+/** Fast drop picker — shuffled search, returns first valid drop (keeps bot loop responsive). */
 export function chooseBotDrop(
   fen: string,
   captured: string[],
-  seatColor: "w" | "b" = "w",
-  skill?: BotSkillProfile
+  seatColor: "w" | "b" = "w"
 ): { piece: PieceSymbol; square: Square } | null {
   const reserve = captured as PieceSymbol[];
   const pieces = [...new Set(reserve)] as PieceSymbol[];
   if (pieces.length === 0) return null;
 
   const orderedPieces = shuffle(pieces);
-  const candidates: { piece: PieceSymbol; square: Square; score: number }[] = [];
+  const orderedSquares = shuffle(allSquares());
 
   for (const piece of orderedPieces) {
-    for (const square of allSquares()) {
+    for (const square of orderedSquares) {
       const result = validateDrop(fen, piece, square, seatColor, reserve);
       if (result.valid) {
-        let score = 0;
-        if (result.fen) {
-          const after = new Chess(result.fen);
-          if (after.isCheckmate()) score += 3;
-          else if (after.isCheck()) score += (skill?.checkWeight ?? 0.3) * 2;
-        }
-        if (square[1] === "4" || square[1] === "5") score += 0.15;
-        candidates.push({ piece, square, score });
+        return { piece, square };
       }
     }
   }
-
-  if (candidates.length === 0) return null;
-
-  candidates.sort((a, b) => b.score - a.score);
-  const pool =
-    skill && skill.tier !== "pawn"
-      ? candidates.slice(0, Math.min(3, candidates.length))
-      : candidates;
-  const pick = pickRandom(pool) ?? candidates[0]!;
-  return { piece: pick.piece, square: pick.square };
+  return null;
 }
 
 function allSquares(): Square[] {
@@ -133,4 +130,28 @@ export function botThinkDelayMs(skill: BotSkillProfile): number {
     skill.thinkMinMs +
     Math.floor(Math.random() * (skill.thinkMaxMs - skill.thinkMinMs))
   );
+}
+
+export function inferBotPromotion(
+  fen: string,
+  move: string,
+  seatColor: "w" | "b"
+): PieceSymbol | undefined {
+  const board = new Chess(fen);
+  const from = move.slice(0, 2) as Square;
+  const to = move.slice(2, 4);
+  const piece = board.get(from);
+  if (!piece || piece.type !== "p") return undefined;
+  if (seatColor === "w" && to === "8") return "q";
+  if (seatColor === "b" && to === "1") return "q";
+  return undefined;
+}
+
+/** Fallback when the scored pick fails validation on the server. */
+export function chooseAnyLegalMove(fen: string, seatColor: "w" | "b"): string | null {
+  const chess = new Chess(fen);
+  const moves = chess.moves({ verbose: true });
+  if (moves.length === 0) return null;
+  const pick = pickRandom(moves);
+  return pick ? `${pick.from}${pick.to}` : null;
 }

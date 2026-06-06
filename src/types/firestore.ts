@@ -82,6 +82,8 @@ export interface MatchDocument {
   playerUids?: string[];
   botUids?: string[];
   hasBots?: boolean;
+  /** Per-team clock budget in seconds (e.g. 60 blitz, 300 standard). */
+  timeControl?: number;
 }
 
 export interface BoardDocument {
@@ -148,6 +150,8 @@ export interface MatchmakingEntry {
   partyId?: string | null;
   memberUids: string[];
   members: MatchmakingMember[];
+  /** Casual only — clock budget in seconds (60 blitz, 300 standard). */
+  timeControl?: number;
 }
 
 export interface MatchmakingMember {

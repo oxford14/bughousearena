@@ -23,6 +23,12 @@ import { toast } from "sonner";
 import { useSound } from "@/providers/sound-provider";
 import { useLobbyMusic } from "@/hooks/use-lobby-music";
 import { dismissLobbyMusic } from "@/lib/sound/music-manager";
+import {
+  CASUAL_TIME_CONTROLS,
+  getCasualTimeControlLabel,
+  STANDARD_TIME_CONTROL_SEC,
+  type CasualTimeControlSec,
+} from "@/lib/game/time-control";
 
 export default function LobbyPage() {
   const { profile, user } = useAuth();
@@ -34,6 +40,9 @@ export default function LobbyPage() {
   const [activeMode, setActiveMode] = useState<MatchMode>("casual");
   const [queueElapsedSec, setQueueElapsedSec] = useState(0);
   const [liveHumansInQueue, setLiveHumansInQueue] = useState(0);
+  const [casualTimeControl, setCasualTimeControl] = useState<CasualTimeControlSec>(
+    STANDARD_TIME_CONTROL_SEC
+  );
   const matchFoundRef = useRef(false);
   const queueUnsubRef = useRef<(() => void) | null>(null);
   const botFailToastRef = useRef(false);
@@ -81,7 +90,12 @@ export default function LobbyPage() {
     setSearching(true);
     setActiveMode(mode);
     try {
-      const id = await joinQueue(profile, mode, party);
+      const id = await joinQueue(
+        profile,
+        mode,
+        party,
+        mode === "casual" ? casualTimeControl : undefined
+      );
       setQueueId(id);
       queueUnsubRef.current = subscribeToQueue(
         profile.uid,
@@ -127,7 +141,9 @@ export default function LobbyPage() {
   const queueLabel =
     searching && liveHumansInQueue > 0
       ? `${queueLabelBase} (${liveHumansInQueue} online)`
-      : queueLabelBase;
+      : searching && activeMode === "casual"
+        ? `${queueLabelBase} · ${getCasualTimeControlLabel(casualTimeControl)}`
+        : queueLabelBase;
 
   const leaderHint = "Only the party leader can start matchmaking.";
 
@@ -165,7 +181,7 @@ export default function LobbyPage() {
               <MatchModePanel
                 mode="casual"
                 title="Casual Match"
-                description="Unranked 4-player bughouse. Party up or queue solo — teams are formed automatically."
+                description="Unranked 4-player bughouse. Pick a time control, party up, or queue solo."
                 iconSrc="/assets/lobby/mode-casual.svg"
                 accentClass="lobby-mode-card--casual"
                 searching={searching}
@@ -173,6 +189,12 @@ export default function LobbyPage() {
                 queueElapsedSec={queueElapsedSec}
                 canQueue={canQueue}
                 disabledReason={leaderHint}
+                timeControlOptions={CASUAL_TIME_CONTROLS}
+                selectedTimeControl={casualTimeControl}
+                onTimeControlChange={(seconds) => {
+                  play("uiTab");
+                  setCasualTimeControl(seconds as CasualTimeControlSec);
+                }}
                 onQueue={() => startQueue("casual")}
                 onCancel={cancelQueue}
               />

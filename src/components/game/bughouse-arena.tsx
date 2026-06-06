@@ -25,6 +25,7 @@ import {
 import { validateDrop, validateMove } from "@/lib/game/move-validator";
 import { submitMove, resignMatch } from "@/lib/game/matchmaking";
 import { formatClock } from "@/lib/game/clock-manager";
+import { formatTimeControl, matchTimeControlSeconds } from "@/lib/game/time-control";
 import { VoiceChatManager } from "@/lib/voice/webrtc";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
@@ -307,7 +308,12 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
           })}
         </div>
         <div className="flex gap-2">
-          <Badge>{match.mode}</Badge>
+          <Badge>
+            {match.mode}
+            {match.mode === "casual"
+              ? ` · ${formatTimeControl(matchTimeControlSeconds(match))}`
+              : null}
+          </Badge>
           <Button
             variant="outline"
             size="sm"

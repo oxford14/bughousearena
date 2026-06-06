@@ -1,18 +1,12 @@
 import type { MatchmakingMember } from "@/types/firestore";
 import type { RankTier } from "./ranks";
 import {
+  getBotDisplayTier,
+  getBotPlayTier,
+  getBotSkillForRating,
   getBotSkillProfile,
   getRankLabel,
-  getRankTier,
-  RANK_TIER_ORDER,
 } from "./ranks";
-
-function playTierForRating(targetRating: number): RankTier {
-  const base = getRankTier(targetRating);
-  const idx = RANK_TIER_ORDER.indexOf(base);
-  // Bots play one tier stronger than their label (cap at king).
-  return RANK_TIER_ORDER[Math.min(idx + 1, RANK_TIER_ORDER.length - 1)]!;
-}
 
 /** Wait this long before filling empty slots with arena bots. */
 export const BOT_QUEUE_TIMEOUT_MS = 25_000;
@@ -59,16 +53,20 @@ function ratingForTier(tier: RankTier, targetRating: number): number {
   return Math.round(targetRating * 0.55 + tierMid[tier] * 0.45);
 }
 
+/** Peak human rating in the queue — bots scale to the strongest human present. */
+function peakHumanRating(humanMembers: MatchmakingMember[]): number {
+  if (humanMembers.length === 0) return 1200;
+  return Math.max(...humanMembers.map((m) => m.rating));
+}
+
 /** Pick bot players scaled to the human queue rating / rank tier. */
 export function pickBots(
   count: number,
   humanMembers: MatchmakingMember[]
 ): MatchmakingMember[] {
-  const targetRating = Math.round(
-    humanMembers.reduce((sum, m) => sum + m.rating, 0) / humanMembers.length
-  );
-  const displayTier = getRankTier(targetRating);
-  const playTier = playTierForRating(targetRating);
+  const targetRating = peakHumanRating(humanMembers);
+  const displayTier = getBotDisplayTier(targetRating);
+  const playTier = getBotPlayTier(targetRating);
   const personas = shuffle(BOT_PERSONAS).slice(0, count);
 
   return personas.map((persona, index) => {
@@ -122,7 +120,8 @@ export function getBotSkillForMember(member: {
   rankTier?: RankTier | string;
   rating?: number;
 }) {
+  if (member.rating != null) return getBotSkillForRating(member.rating);
   if (member.botSkill) return getBotSkillProfile(member.botSkill);
   if (member.rankTier) return getBotSkillProfile(member.rankTier);
-  return getBotSkillProfile(getRankTier(member.rating ?? 1200));
+  return getBotSkillForRating(1200);
 }

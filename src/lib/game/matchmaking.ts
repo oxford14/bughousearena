@@ -44,13 +44,17 @@ import {
   isBotUid,
   pickBots,
 } from "./bots";
+import {
+  filterQueueByTimeControl,
+  RANKED_TIME_CONTROL_SEC,
+  resolveQueueTimeControl,
+  STANDARD_TIME_CONTROL_SEC,
+} from "./time-control";
 
 export { BOT_QUEUE_TIMEOUT_MS, BOT_BACKFILL_RETRY_MS };
 
 /** When exactly two humans are waiting, fill bots after this grace period. */
 export const HUMAN_PAIR_BOT_GRACE_MS = 5_000;
-
-const DEFAULT_TIME_CONTROL = 300;
 
 export function countLiveHumansInQueue(entries: MatchmakingEntry[]): number {
   const seen = new Set<string>();
@@ -106,6 +110,7 @@ function normalizeQueueEntry(
     partyId: (data.partyId as string | null | undefined) ?? null,
     memberUids: (data.memberUids as string[] | undefined) ?? members.map((m) => m.uid),
     members,
+    timeControl: (data.timeControl as number | undefined) ?? undefined,
   };
 }
 
@@ -121,7 +126,8 @@ function toMatchmakingMember(user: UserProfile): MatchmakingMember {
 export async function joinQueue(
   user: UserProfile,
   mode: MatchMode,
-  party?: PartyDocument | null
+  party?: PartyDocument | null,
+  timeControlSec?: number
 ): Promise<string> {
   const members: MatchmakingMember[] = party?.members.length
     ? party.members.map((m) => ({
@@ -136,6 +142,11 @@ export async function joinQueue(
     throw new Error("Only the party leader can queue for matchmaking");
   }
 
+  const timeControl =
+    mode === "ranked"
+      ? RANKED_TIME_CONTROL_SEC
+      : (timeControlSec ?? STANDARD_TIME_CONTROL_SEC);
+
   const ref = await addDoc(collection(getFirebaseDb(), "matchmaking"), {
     uid: user.uid,
     displayName: user.displayName,
@@ -145,6 +156,7 @@ export async function joinQueue(
     partyId: party?.id ?? null,
     memberUids: members.map((m) => m.uid),
     members,
+    timeControl,
   });
   return ref.id;
 }
@@ -269,11 +281,12 @@ export function subscribeToQueue(
     if (creating || settled) return;
 
     const entries = snap.docs.map((d) => normalizeQueueEntry(d.id, d.data()));
-    onQueueStats?.({ liveHumans: countLiveHumansInQueue(entries) });
     const myEntry = entries.find((e) => e.id === queueEntryId);
-    const liveHumans = countLiveHumansInQueue(entries);
+    const pool = myEntry ? filterQueueByTimeControl(entries, myEntry) : entries;
+    onQueueStats?.({ liveHumans: countLiveHumansInQueue(pool) });
+    const liveHumans = countLiveHumansInQueue(pool);
 
-    const combo = myEntry ? findQueueCombo(entries, queueEntryId) : null;
+    const combo = myEntry ? findQueueCombo(pool, queueEntryId) : null;
     if (combo) {
       creating = true;
       try {
@@ -330,7 +343,8 @@ function collectQueueEntriesForBotFill(
   const anchor = entries.find((e) => e.id === anchorId);
   if (!anchor) return [];
 
-  const sorted = [...entries].sort((a, b) => {
+  const pool = filterQueueByTimeControl(entries, anchor);
+  const sorted = [...pool].sort((a, b) => {
     const ta = a.timestamp?.toMillis?.() ?? 0;
     const tb = b.timestamp?.toMillis?.() ?? 0;
     return ta - tb;
@@ -371,7 +385,11 @@ async function tryCreateBotMatchBatch(
     normalizeQueueEntry(d.id, d.data() as Record<string, unknown>)
   );
 
-  const selected = collectQueueEntriesForBotFill(entries, queueEntryId);
+  const anchorEntry = entries.find((e) => e.id === queueEntryId);
+  if (!anchorEntry) return null;
+  const pool = filterQueueByTimeControl(entries, anchorEntry);
+
+  const selected = collectQueueEntriesForBotFill(pool, queueEntryId);
   if (selected.length === 0) return null;
 
   const seenHumanUids = new Set<string>();
@@ -408,6 +426,7 @@ async function tryCreateBotMatchBatch(
         mode,
         players,
         queueEntryIds,
+        timeControlSec: resolveQueueTimeControl(selected[0] ?? { mode, timeControl: STANDARD_TIME_CONTROL_SEC }),
       });
     });
   } catch (error) {
@@ -438,6 +457,7 @@ async function createMatchFromQueue(
         mode,
         players,
         queueEntryIds: entries.map((e) => e.id),
+        timeControlSec: resolveQueueTimeControl(entries[0]!),
       });
     });
   } catch {
@@ -452,9 +472,10 @@ function persistMatchInTransaction(
     mode: MatchMode;
     players: MatchPlayer[];
     queueEntryIds: string[];
+    timeControlSec: number;
   }
 ): string {
-  const { mode, players, queueEntryIds } = opts;
+  const { mode, players, queueEntryIds, timeControlSec } = opts;
   const humanUids = players.filter((p) => !p.isBot).map((p) => p.uid);
   const botUids = players.filter((p) => p.isBot).map((p) => p.uid);
 
@@ -468,14 +489,15 @@ function persistMatchInTransaction(
     hasBots: botUids.length > 0,
     colorChoices: {},
     setupEndsAt: createSetupEndsTimestamp(),
-    teamClocks: { team1: DEFAULT_TIME_CONTROL, team2: DEFAULT_TIME_CONTROL },
+    teamClocks: { team1: timeControlSec, team2: timeControlSec },
+    timeControl: timeControlSec,
     winnerTeam: null,
     createdAt: serverTimestamp(),
     startedAt: null,
     completedAt: null,
   });
 
-  for (const board of createInitialBoards(players)) {
+  for (const board of createInitialBoards(players, timeControlSec)) {
     transaction.set(doc(matchRef, "boards", board.id), serializeBoard(board));
   }
 
@@ -503,7 +525,7 @@ export async function createPrivateRoom(
     code,
     hostId: host.uid,
     hostDisplayName: host.displayName,
-    settings: { mode, timeControl: DEFAULT_TIME_CONTROL },
+    settings: { mode, timeControl: STANDARD_TIME_CONTROL_SEC },
     players: [
       {
         uid: host.uid,
@@ -571,7 +593,8 @@ async function startPrivateMatch(
     hasBots: assigned.some((p) => p.isBot),
     colorChoices: {},
     setupEndsAt: createSetupEndsTimestamp(),
-    teamClocks: { team1: DEFAULT_TIME_CONTROL, team2: DEFAULT_TIME_CONTROL },
+    teamClocks: { team1: STANDARD_TIME_CONTROL_SEC, team2: STANDARD_TIME_CONTROL_SEC },
+    timeControl: STANDARD_TIME_CONTROL_SEC,
     winnerTeam: null,
     privateRoomCode: code,
     createdAt: serverTimestamp(),
@@ -579,7 +602,7 @@ async function startPrivateMatch(
     completedAt: null,
   });
 
-  for (const board of createInitialBoards(assigned)) {
+  for (const board of createInitialBoards(assigned, STANDARD_TIME_CONTROL_SEC)) {
     batch.set(doc(matchRef, "boards", board.id), serializeBoard(board));
   }
 

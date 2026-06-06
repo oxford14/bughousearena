@@ -5,8 +5,10 @@ import type { BoardDocument, MatchDocument, MatchPlayer } from "@/types/firestor
 import { getBotSkillForMember, isBotUid } from "@/lib/game/bots";
 import {
   botThinkDelayMs,
+  chooseAnyLegalMove,
   chooseBotDrop,
   chooseBotMove,
+  inferBotPromotion,
   isBotBoardTurn,
   shouldBotDrop,
 } from "@/lib/game/bot-engine";
@@ -22,6 +24,7 @@ interface UseBotControllerOptions {
 
 const POLL_MS = 750;
 const RETRY_MS = 600;
+const MAX_SUBMIT_ATTEMPTS = 6;
 
 /** Prefer match.players seating — board.playerUid can lag after color-pick swaps. */
 function getSeatOccupant(
@@ -123,6 +126,18 @@ export function useBotController({
   }, [humanUid, match.hasBots, match.id, match.playerUids, match.status]);
 }
 
+async function submitBotMove(
+  matchId: string,
+  boardId: string,
+  playerId: string,
+  move: string,
+  fen: string,
+  seatColor: "w" | "b"
+): Promise<void> {
+  const promotion = inferBotPromotion(fen, move, seatColor);
+  await submitMove(matchId, boardId, playerId, move, undefined, undefined, promotion);
+}
+
 async function executeBotTurn(
   matchId: string,
   boardId: string,
@@ -138,7 +153,7 @@ async function executeBotTurn(
   const reserve = board.captured as PieceSymbol[];
 
   if (shouldBotDrop(board, skill)) {
-    const drop = chooseBotDrop(board.fen, board.captured, seatColor, skill);
+    const drop = chooseBotDrop(board.fen, board.captured, seatColor);
     if (drop) {
       const validation = validateDrop(
         board.fen,
@@ -159,13 +174,36 @@ async function executeBotTurn(
     }
   }
 
-  const move = chooseBotMove(board.fen, skill);
-  if (!move) throw new Error("No legal move found");
+  const candidates: string[] = [];
+  const primary = chooseBotMove(board.fen, skill);
+  if (primary) candidates.push(primary);
 
-  const validation = validateMove(board.fen, move, seatColor);
-  if (!validation.valid) {
-    throw new Error(validation.error ?? "Invalid bot move");
+  const fallback = chooseAnyLegalMove(board.fen, seatColor);
+  if (fallback && !candidates.includes(fallback)) {
+    candidates.push(fallback);
   }
 
-  await submitMove(matchId, boardId, playerId, move);
+  if (candidates.length === 0) {
+    throw new Error("No legal move found");
+  }
+
+  let lastError: unknown;
+  for (const move of candidates.slice(0, MAX_SUBMIT_ATTEMPTS)) {
+    const validation = validateMove(
+      board.fen,
+      move,
+      seatColor,
+      inferBotPromotion(board.fen, move, seatColor)
+    );
+    if (!validation.valid) continue;
+
+    try {
+      await submitBotMove(matchId, boardId, playerId, move, board.fen, seatColor);
+      return;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError ?? new Error("Could not submit bot move");
 }
