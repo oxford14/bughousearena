@@ -7,12 +7,15 @@ import {
   getPhysicalBoard,
   getPhysicalBoardLabel,
   getSeatColor,
+  ensureAllPhysicalClocksStarted,
+  inferGlobalClockStartMs,
   PHYSICAL_BOARD_SEATS,
   snapshotFromBoardDocs,
   type BoardSeatId,
   type PhysicalBoardId,
   type PlayerColor,
 } from "@/lib/game/bughouse-engine";
+import { matchTimeControlSeconds } from "@/lib/game/time-control";
 import { submitTimeForfeit } from "@/lib/game/match-actions";
 import type { MatchPlayer } from "@/types/firestore";
 
@@ -29,7 +32,15 @@ function buildPhysicalDisplays(
   nowMs: number
 ): Record<PhysicalBoardId, PhysicalClockDisplay> {
   const startedAtMs = match.startedAt?.toMillis() ?? 0;
-  const snapshot = snapshotFromBoardDocs(
+  const initialClock = matchTimeControlSeconds(match);
+  const clocksAnchor =
+    match.clocksStartedAtMs && match.clocksStartedAtMs > 0
+      ? match.clocksStartedAtMs
+      : startedAtMs > 0
+        ? startedAtMs
+        : null;
+
+  let snapshot = snapshotFromBoardDocs(
     boards.map((b) => ({
       id: b.id,
       fen: b.fen,
@@ -39,10 +50,16 @@ function buildPhysicalDisplays(
       boardStatus: b.boardStatus,
       whiteClock: b.whiteClock,
       blackClock: b.blackClock,
-      // Clock stays paused (null) until the first move on this board sets it.
       clockRunning: b.clockRunning ?? null,
       clockUpdatedAtMs: b.clockUpdatedAtMs ?? startedAtMs,
     }))
+  );
+
+  const inferredAnchor = inferGlobalClockStartMs(snapshot, initialClock, nowMs);
+  snapshot = ensureAllPhysicalClocksStarted(
+    snapshot,
+    nowMs,
+    clocksAnchor ?? inferredAnchor
   );
 
   const displays = {} as Record<PhysicalBoardId, PhysicalClockDisplay>;

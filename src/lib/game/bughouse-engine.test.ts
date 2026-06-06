@@ -12,6 +12,7 @@ import {
   reservePieceFromCapture,
   SEAT_CONFIG,
   startMatchClocks,
+  ensureAllPhysicalClocksStarted,
   tickPhysicalClock,
   validateDrop,
   type BughouseSnapshot,
@@ -180,6 +181,42 @@ describe("physical board clocks", () => {
     assert.equal(ticked.whiteClock, 295);
     assert.equal(ticked.blackClock, 300);
     assert.equal(ticked.clockRunning, "w");
+  });
+
+  it("starts clocks on both physical boards when the first move is played anywhere", () => {
+    const snap = createInitialSnapshot();
+    const result = applyAction(
+      snap,
+      { type: "move", seatId: "board-b", move: "e2e4" },
+      2_000
+    );
+    assert.equal(result.valid, true);
+    const alpha = result.snapshot!.physical.alpha;
+    const bravo = result.snapshot!.physical.bravo;
+    assert.equal(alpha.clockRunning, "w");
+    assert.equal(alpha.clockUpdatedAtMs, 2_000);
+    assert.equal(bravo.clockRunning, "b");
+  });
+
+  it("syncs idle board when only the partner physical board had started", () => {
+    const snap = createInitialSnapshot();
+    snap.physical.bravo = {
+      ...snap.physical.bravo,
+      clockRunning: "b",
+      clockUpdatedAtMs: 5_000,
+      whiteClock: 297,
+      blackClock: 300,
+    };
+    snap.physical.alpha = {
+      ...snap.physical.alpha,
+      clockRunning: null,
+      clockUpdatedAtMs: 0,
+    };
+
+    const synced = ensureAllPhysicalClocksStarted(snap, 8_000, 5_000);
+    assert.equal(synced.physical.alpha.clockRunning, "w");
+    assert.equal(synced.physical.alpha.whiteClock, 297);
+    assert.equal(synced.physical.alpha.clockUpdatedAtMs, 8_000);
   });
 
   it("switches to Black clock after White moves", () => {

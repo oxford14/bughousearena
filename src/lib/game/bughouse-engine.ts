@@ -449,13 +449,109 @@ export function tickAllPhysicalClocks(
   return next;
 }
 
-/** Both physical boards: White clocks start immediately (standard Bughouse). */
+const PHYSICAL_BOARD_IDS: PhysicalBoardId[] = ["alpha", "bravo"];
+
+/** True once any physical board has begun counting. */
+export function matchClocksStarted(snapshot: BughouseSnapshot): boolean {
+  return PHYSICAL_BOARD_IDS.some(
+    (id) => snapshot.physical[id].clockRunning != null
+  );
+}
+
+/** True when both physical boards have an active running clock side. */
+export function allMatchClocksStarted(snapshot: BughouseSnapshot): boolean {
+  return PHYSICAL_BOARD_IDS.every(
+    (id) =>
+      snapshot.physical[id].status !== "active" ||
+      snapshot.physical[id].clockRunning != null
+  );
+}
+
+function backfillIdlePhysicalBoard(
+  board: PhysicalBoardState,
+  nowMs: number,
+  anchorMs: number
+): PhysicalBoardState {
+  const side = getSideToMoveFromFen(board.fen);
+  const elapsed = Math.max(0, Math.floor((nowMs - anchorMs) / 1000));
+  const next: PhysicalBoardState = {
+    ...board,
+    clockRunning: side,
+    clockUpdatedAtMs: nowMs,
+  };
+  if (side === "w") {
+    next.whiteClock = Math.max(0, board.whiteClock - elapsed);
+  } else {
+    next.blackClock = Math.max(0, board.blackClock - elapsed);
+  }
+  return next;
+}
+
+/**
+ * Keep both physical boards in sync — on first move anywhere, start both;
+ * repair legacy state where only one board was counting.
+ */
+export function ensureAllPhysicalClocksStarted(
+  snapshot: BughouseSnapshot,
+  nowMs = Date.now(),
+  clocksStartedAtMs?: number | null
+): BughouseSnapshot {
+  if (allMatchClocksStarted(snapshot)) return snapshot;
+
+  if (!matchClocksStarted(snapshot)) {
+    return startMatchClocks(snapshot, nowMs);
+  }
+
+  const anchorFromBoards = Math.min(
+    ...PHYSICAL_BOARD_IDS.map((id) => snapshot.physical[id].clockUpdatedAtMs).filter(
+      (ms) => ms > 0
+    )
+  );
+  const anchorMs =
+    clocksStartedAtMs && clocksStartedAtMs > 0
+      ? clocksStartedAtMs
+      : Number.isFinite(anchorFromBoards) && anchorFromBoards > 0
+        ? anchorFromBoards
+        : nowMs;
+
+  const next = cloneSnapshot(snapshot);
+  for (const id of PHYSICAL_BOARD_IDS) {
+    const board = next.physical[id];
+    if (board.status !== "active" || board.clockRunning != null) continue;
+    next.physical[id] = backfillIdlePhysicalBoard(board, nowMs, anchorMs);
+  }
+  return next;
+}
+
+/** Estimate when clocks began (for legacy matches missing clocksStartedAtMs). */
+export function inferGlobalClockStartMs(
+  snapshot: BughouseSnapshot,
+  initialClockSec: number,
+  nowMs = Date.now()
+): number | null {
+  for (const id of PHYSICAL_BOARD_IDS) {
+    const ref = snapshot.physical[id];
+    if (ref.clockRunning == null) continue;
+
+    const whiteElapsed =
+      ref.clockRunning === "w"
+        ? initialClockSec - getEffectiveClock(ref, "w", nowMs)
+        : initialClockSec - ref.whiteClock;
+
+    if (whiteElapsed >= 0) {
+      return nowMs - whiteElapsed * 1000;
+    }
+  }
+  return null;
+}
+
+/** Both physical boards: White clocks start on the first move anywhere. */
 export function startMatchClocks(
   snapshot: BughouseSnapshot,
   nowMs = Date.now()
 ): BughouseSnapshot {
   const next = cloneSnapshot(snapshot);
-  for (const id of ["alpha", "bravo"] as PhysicalBoardId[]) {
+  for (const id of PHYSICAL_BOARD_IDS) {
     const board = next.physical[id];
     if (board.status !== "active") continue;
     next.physical[id] = {
@@ -516,9 +612,12 @@ function flipTurnInFen(fen: string): string {
 export function applyAction(
   snapshot: BughouseSnapshot,
   action: GameAction,
-  nowMs = Date.now()
+  nowMs = Date.now(),
+  clocksStartedAtMs?: number | null
 ): ActionResult {
-  const next = cloneSnapshot(snapshot);
+  let next = cloneSnapshot(snapshot);
+  next = ensureAllPhysicalClocksStarted(next, nowMs, clocksStartedAtMs);
+
   const seatId = action.seatId;
   const seatConfig = SEAT_CONFIG[seatId];
   const physicalId = seatConfig.physicalBoard;
@@ -710,7 +809,7 @@ export function snapshotFromBoardDocs(
       promotedSquares,
       whiteClock: primary.whiteClock ?? 300,
       blackClock: primary.blackClock ?? 300,
-      // Clock stays paused (null) until the first move is made on this board.
+      // Clock stays paused (null) until the first move anywhere in the match.
       clockRunning: primary.clockRunning ?? null,
       clockUpdatedAtMs: primary.clockUpdatedAtMs ?? 0,
       status,

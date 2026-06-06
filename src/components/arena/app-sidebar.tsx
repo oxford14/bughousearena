@@ -19,6 +19,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/providers/auth-provider";
+import { RankLadderDialog } from "@/components/arena/rank-ladder-dialog";
 import { getRankAssetPath, getRankLabel, getRankTier } from "@/lib/game/elo";
 import { appNavItems } from "@/lib/nav-items";
 import { AppBottomNav } from "@/components/arena/app-bottom-nav";
@@ -43,10 +44,13 @@ function DesktopSidebar() {
           <div className="min-w-0 group-data-[collapsible=icon]:hidden">
             <p className="font-heading text-sm neon-glow truncate">Bughouse Arena</p>
             {profile && (
-              <p className="flex items-center gap-1 text-xs text-muted-foreground truncate">
-                <Image src={getRankAssetPath(tier)} alt="" width={14} height={14} />
-                {getRankLabel(tier)} · {profile.rating}
-              </p>
+              <div className="flex items-center gap-1 group-data-[collapsible=icon]:hidden">
+                <p className="flex items-center gap-1 text-xs text-muted-foreground truncate">
+                  <Image src={getRankAssetPath(tier)} alt="" width={14} height={14} />
+                  {getRankLabel(tier)} · {profile.rating}
+                </p>
+                <RankLadderDialog rating={profile.rating} variant="icon" />
+              </div>
             )}
           </div>
         </div>

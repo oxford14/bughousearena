@@ -130,6 +130,43 @@ export const RANK_TIER_ORDER: RankTier[] = [
   "king",
 ];
 
+export interface RankLadderEntry {
+  tier: RankTier;
+  label: string;
+  minRating: number;
+  maxRating: number | null;
+}
+
+export const RANK_LADDER: RankLadderEntry[] = [
+  { tier: "pawn", label: "Pawn", minRating: 0, maxRating: 1199 },
+  { tier: "knight", label: "Knight", minRating: 1200, maxRating: 1399 },
+  { tier: "bishop", label: "Bishop", minRating: 1400, maxRating: 1599 },
+  { tier: "rook", label: "Rook", minRating: 1600, maxRating: 1899 },
+  { tier: "queen", label: "Queen", minRating: 1900, maxRating: 2199 },
+  { tier: "king", label: "King", minRating: 2200, maxRating: null },
+];
+
+export function formatRankRatingRange(entry: RankLadderEntry): string {
+  if (entry.maxRating == null) return `${entry.minRating}+ ELO`;
+  return `${entry.minRating}–${entry.maxRating} ELO`;
+}
+
+export function getNextRankProgress(rating: number): {
+  nextTier: RankTier;
+  nextLabel: string;
+  pointsNeeded: number;
+} | null {
+  const currentTier = getRankTier(rating);
+  const currentIdx = RANK_TIER_ORDER.indexOf(currentTier);
+  if (currentIdx >= RANK_TIER_ORDER.length - 1) return null;
+  const next = RANK_LADDER[currentIdx + 1]!;
+  return {
+    nextTier: next.tier,
+    nextLabel: next.label,
+    pointsNeeded: Math.max(0, next.minRating - rating),
+  };
+}
+
 const TIER_RATING_FLOOR: Record<RankTier, number> = {
   pawn: 0,
   knight: 1200,

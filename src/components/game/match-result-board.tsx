@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { Chessboard } from "react-chessboard";
 import { Badge } from "@/components/ui/badge";
 import { getArenaChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getPhysicalBoardResultStatus } from "@/lib/game/match-end";
 import {
   getPhysicalBoardLabel,
   getSeatColor,
@@ -11,11 +12,12 @@ import {
   type BoardSeatId,
   type PhysicalBoardId,
 } from "@/lib/game/bughouse-engine";
-import type { BoardDocument, MatchPlayer } from "@/types/firestore";
+import type { BoardDocument, MatchDocument, MatchPlayer } from "@/types/firestore";
 import { cn } from "@/lib/utils";
 
 interface MatchResultBoardProps {
   physicalId: PhysicalBoardId;
+  match: MatchDocument;
   boards: BoardDocument[];
   players: MatchPlayer[];
 }
@@ -24,33 +26,48 @@ function seatPlayer(players: MatchPlayer[], seatId: BoardSeatId): MatchPlayer | 
   return players.find((p) => p.boardId === seatId);
 }
 
-function physicalStatus(
-  boards: BoardDocument[],
-  physicalId: PhysicalBoardId
-): "checkmate" | "stalemate" | "active" {
-  const seatBoards = PHYSICAL_BOARD_SEATS[physicalId]
-    .map((seatId) => boards.find((b) => b.id === seatId))
-    .filter((b): b is BoardDocument => b != null);
-
-  if (seatBoards.some((b) => b.boardStatus === "checkmate")) return "checkmate";
-  if (seatBoards.some((b) => b.boardStatus === "stalemate")) return "stalemate";
-  return "active";
-}
-
 const STATUS_LABEL = {
   checkmate: "Checkmate",
   stalemate: "Frozen",
+  time_forfeit: "Time forfeit",
   active: "Active",
 } as const;
 
-export function MatchResultBoard({ physicalId, boards, players }: MatchResultBoardProps) {
+function timedOutPlayerName(
+  boards: BoardDocument[],
+  players: MatchPlayer[],
+  physicalId: PhysicalBoardId
+): string | null {
+  const seatIds = PHYSICAL_BOARD_SEATS[physicalId];
+  const primary = boards.find((b) => b.id === seatIds[0]);
+  if (!primary) return null;
+
+  const whiteSeat = seatIds.find((id) => getSeatColor(id) === "w")!;
+  const blackSeat = seatIds.find((id) => getSeatColor(id) === "b")!;
+
+  if ((primary.whiteClock ?? 300) <= 0) {
+    return seatPlayer(players, whiteSeat)?.displayName ?? "White";
+  }
+  if ((primary.blackClock ?? 300) <= 0) {
+    return seatPlayer(players, blackSeat)?.displayName ?? "Black";
+  }
+  return null;
+}
+
+export function MatchResultBoard({
+  physicalId,
+  match,
+  boards,
+  players,
+}: MatchResultBoardProps) {
   const seatIds = PHYSICAL_BOARD_SEATS[physicalId];
   const whiteSeat = seatIds.find((id) => getSeatColor(id) === "w")!;
   const blackSeat = seatIds.find((id) => getSeatColor(id) === "b")!;
   const primaryBoard = boards.find((b) => b.id === seatIds[0]);
   const whitePlayer = seatPlayer(players, whiteSeat);
   const blackPlayer = seatPlayer(players, blackSeat);
-  const status = physicalStatus(boards, physicalId);
+  const status = getPhysicalBoardResultStatus(match, boards, physicalId);
+  const timedOut = status === "time_forfeit" ? timedOutPlayerName(boards, players, physicalId) : null;
 
   const chessboardOptions = useMemo(
     () =>
@@ -64,7 +81,16 @@ export function MatchResultBoard({ physicalId, boards, players }: MatchResultBoa
   );
 
   return (
-    <div className="rounded-xl border border-primary/20 bg-[#0a0618]/60 p-3">
+    <div
+      className={cn(
+        "rounded-xl border bg-[#0a0618]/60 p-3",
+        status === "time_forfeit"
+          ? "border-amber-500/35 shadow-[0_0_20px_rgba(245,158,11,0.08)]"
+          : status === "checkmate"
+            ? "border-red-500/30"
+            : "border-primary/20"
+      )}
+    >
       <div className="flex items-center justify-between gap-2 mb-2">
         <p className="text-xs font-semibold uppercase tracking-wider text-secondary">
           {getPhysicalBoardLabel(physicalId)}
@@ -73,12 +99,20 @@ export function MatchResultBoard({ physicalId, boards, players }: MatchResultBoa
           variant={status === "checkmate" ? "destructive" : "secondary"}
           className={cn(
             "text-[10px] capitalize",
-            status === "checkmate" && "bg-red-500/20 text-red-300 border-red-500/30"
+            status === "checkmate" && "bg-red-500/20 text-red-300 border-red-500/30",
+            status === "time_forfeit" &&
+              "bg-amber-500/20 text-amber-300 border-amber-500/30 font-semibold uppercase tracking-wide"
           )}
         >
           {STATUS_LABEL[status]}
         </Badge>
       </div>
+
+      {timedOut ? (
+        <p className="mb-2 text-[11px] text-amber-300/90">
+          {timedOut} ran out of time
+        </p>
+      ) : null}
 
       <div className="flex justify-between gap-2 mb-2 text-[11px] text-muted-foreground">
         <span className="truncate">

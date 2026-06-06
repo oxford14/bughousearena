@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
-import { getRankAssetPath, getRankLabel, getRankTier } from "@/lib/game/elo";
+import { RankLadderDialog } from "@/components/arena/rank-ladder-dialog";
 import type { UserProfile } from "@/types/firestore";
 
 interface LobbyHeaderProps {
@@ -11,7 +11,6 @@ interface LobbyHeaderProps {
 }
 
 export function LobbyHeader({ profile }: LobbyHeaderProps) {
-  const tier = profile ? getRankTier(profile.rating) : "pawn";
   const displayName = profile?.displayName ?? "Player";
   const rating = profile?.rating ?? 1200;
   const coins = profile?.arenaCoins ?? 0;
@@ -52,16 +51,8 @@ export function LobbyHeader({ profile }: LobbyHeaderProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <motion.div
-            className="lobby-stat-chip flex items-center gap-2 rounded-lg border border-primary/25 px-3 py-2"
-            whileHover={{ scale: 1.03 }}
-            transition={{ type: "spring", stiffness: 400, damping: 20 }}
-          >
-            <Image src={getRankAssetPath(tier)} alt="" width={24} height={24} className="h-6 w-6" />
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Rank</p>
-              <p className="text-sm font-medium leading-none">{getRankLabel(tier)}</p>
-            </div>
+          <motion.div whileHover={{ scale: 1.03 }} transition={{ type: "spring", stiffness: 400, damping: 20 }}>
+            <RankLadderDialog rating={rating} variant="chip" />
           </motion.div>
 
           <motion.div

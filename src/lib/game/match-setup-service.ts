@@ -117,7 +117,7 @@ export async function finalizeMatchSetup(matchId: string): Promise<boolean> {
     });
 
     // Reassign each board's occupant (seats can swap) and pause clocks until
-    // the first move is played on that board.
+    // the first move is played anywhere in the match.
     for (const boardId of BOARD_IDS) {
       const player = updatedPlayers.find((p) => p.boardId === boardId);
       const boardRef = doc(db, "matches", matchId, "boards", boardId);

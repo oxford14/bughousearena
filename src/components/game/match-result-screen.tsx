@@ -316,11 +316,13 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <MatchResultBoard
                     physicalId="alpha"
+                    match={match}
                     boards={boards}
                     players={match.players}
                   />
                   <MatchResultBoard
                     physicalId="bravo"
+                    match={match}
                     boards={boards}
                     players={match.players}
                   />

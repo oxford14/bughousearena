@@ -84,6 +84,8 @@ export interface MatchDocument {
   hasBots?: boolean;
   /** Per-team clock budget in seconds (e.g. 60 blitz, 300 standard). */
   timeControl?: number;
+  /** Epoch ms when any board first started counting (first move anywhere). */
+  clocksStartedAtMs?: number | null;
 }
 
 export interface BoardDocument {

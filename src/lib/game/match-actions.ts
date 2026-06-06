@@ -19,6 +19,8 @@ import {
   evaluateMatchEnd,
   getPhysicalBoard,
   getSeatColor,
+  matchClocksStarted,
+  inferGlobalClockStartMs,
   reservePieceFromCapture,
   snapshotFromBoardDocs,
   tickAllPhysicalClocks,
@@ -28,6 +30,7 @@ import {
   type BughouseSnapshot,
 } from "@/lib/game/bughouse-engine";
 import type { BoardDocument, MatchDocument, MatchEndReason } from "@/types/firestore";
+import { matchTimeControlSeconds } from "@/lib/game/time-control";
 
 export interface SubmitMoveParams {
   matchId: string;
@@ -258,10 +261,22 @@ export async function submitValidatedMove(
         return { ok: false, error: "This board is frozen" };
       }
 
-      const snapshot = tickAllPhysicalClocks(
-        loadSnapshotFromBoards(boards),
-        Date.now()
+      const nowMs = Date.now();
+      const preSnapshot = loadSnapshotFromBoards(boards);
+      const inferredAnchor = inferGlobalClockStartMs(
+        preSnapshot,
+        matchTimeControlSeconds(match),
+        nowMs
       );
+      const clocksAnchor =
+        match.clocksStartedAtMs ??
+        inferredAnchor ??
+        match.startedAt?.toMillis?.() ??
+        undefined;
+
+      const snapshot = tickAllPhysicalClocks(preSnapshot, nowMs);
+
+      const wasMatchClocksStarted = matchClocksStarted(snapshot);
 
       const timeForfeit = evaluateMatchEnd(snapshot);
       if (
@@ -285,7 +300,7 @@ export async function submitValidatedMove(
       const action = parseAction(boardId, params.move, params.promotion);
       if (!action) return { ok: false, error: "Invalid action" };
 
-      const result = applyAction(snapshot, action, Date.now());
+      const result = applyAction(snapshot, action, nowMs, clocksAnchor);
       if (!result.valid || !result.snapshot) {
         return { ok: false, error: result.error ?? "Illegal action" };
       }
@@ -300,8 +315,18 @@ export async function submitValidatedMove(
         match.players
       );
 
+      const matchPatch: Record<string, unknown> = {};
+
+      if (
+        !match.clocksStartedAtMs &&
+        !wasMatchClocksStarted &&
+        matchClocksStarted(result.snapshot)
+      ) {
+        matchPatch.clocksStartedAtMs = nowMs;
+      }
+
       if (result.matchEnded && result.winnerTeam) {
-        tx.update(matchRef, completeMatchUpdate(result.winnerTeam, "checkmate"));
+        Object.assign(matchPatch, completeMatchUpdate(result.winnerTeam, "checkmate"));
       } else {
         const postMoveEnd = evaluateMatchEnd(result.snapshot);
         if (
@@ -309,11 +334,15 @@ export async function submitValidatedMove(
           postMoveEnd.reason === "time_forfeit" &&
           postMoveEnd.winnerTeam
         ) {
-          tx.update(
-            matchRef,
+          Object.assign(
+            matchPatch,
             completeMatchUpdate(postMoveEnd.winnerTeam, "time_forfeit")
           );
         }
+      }
+
+      if (Object.keys(matchPatch).length > 0) {
+        tx.update(matchRef, matchPatch);
       }
 
       return { ok: true };

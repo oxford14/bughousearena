@@ -46,6 +46,40 @@ function physicalBoardStatus(
   return "active";
 }
 
+function physicalBoardClocksExpired(
+  boards: BoardDocument[],
+  physicalId: PhysicalBoardId
+): boolean {
+  const primary = boards.find((b) => b.id === PHYSICAL_BOARD_SEATS[physicalId][0]);
+  if (!primary) return false;
+  return (primary.whiteClock ?? 300) <= 0 || (primary.blackClock ?? 300) <= 0;
+}
+
+export type PhysicalBoardResultStatus =
+  | "checkmate"
+  | "stalemate"
+  | "time_forfeit"
+  | "active";
+
+/** End-of-match status for one physical board (A or B). */
+export function getPhysicalBoardResultStatus(
+  match: MatchDocument,
+  boards: BoardDocument[],
+  physicalId: PhysicalBoardId
+): PhysicalBoardResultStatus {
+  const playStatus = physicalBoardStatus(boards, physicalId);
+  if (playStatus !== "active") return playStatus;
+
+  if (
+    inferMatchEndReason(match, boards) === "time_forfeit" &&
+    physicalBoardClocksExpired(boards, physicalId)
+  ) {
+    return "time_forfeit";
+  }
+
+  return "active";
+}
+
 /** Physical board where the match-ending event occurred, if known. */
 export function getDecisiveBoardLabel(
   match: MatchDocument,
@@ -64,12 +98,7 @@ export function getDecisiveBoardLabel(
 
   if (reason === "time_forfeit") {
     for (const physicalId of ["alpha", "bravo"] as PhysicalBoardId[]) {
-      const seatBoards = PHYSICAL_BOARD_SEATS[physicalId]
-        .map((id) => boards.find((b) => b.id === id))
-        .filter((b): b is BoardDocument => b != null);
-      const primary = seatBoards[0];
-      if (!primary) continue;
-      if ((primary.whiteClock ?? 300) <= 0 || (primary.blackClock ?? 300) <= 0) {
+      if (physicalBoardClocksExpired(boards, physicalId)) {
         return getPhysicalBoardLabel(physicalId);
       }
     }
