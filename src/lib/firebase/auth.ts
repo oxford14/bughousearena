@@ -2,10 +2,12 @@ import {
   createUserWithEmailAndPassword,
   EmailAuthProvider,
   GoogleAuthProvider,
+  getRedirectResult,
   onAuthStateChanged,
   reauthenticateWithCredential,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updatePassword,
   updateProfile,
@@ -18,12 +20,32 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { getFirebaseAuth, getFirebaseDb } from "./config";
+import { shouldFallbackToGoogleRedirect } from "./auth-errors";
 import type { UserProfile } from "@/types/firestore";
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
 
 export async function signInWithGoogle(): Promise<User> {
-  const result = await signInWithPopup(getFirebaseAuth(), googleProvider);
+  const auth = getFirebaseAuth();
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    await ensureUserProfile(result.user);
+    return result.user;
+  } catch (error) {
+    if (shouldFallbackToGoogleRedirect(error)) {
+      await signInWithRedirect(auth, googleProvider);
+      throw new Error("REDIRECT_PENDING");
+    }
+    throw error;
+  }
+}
+
+/** Complete Google redirect sign-in when returning to /login. */
+export async function completeGoogleRedirectSignIn(): Promise<User | null> {
+  const auth = getFirebaseAuth();
+  const result = await getRedirectResult(auth);
+  if (!result?.user) return null;
   await ensureUserProfile(result.user);
   return result.user;
 }

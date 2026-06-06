@@ -8,8 +8,12 @@
       "anonymous": false,
       "emailPassword": true,
       "googleSignIn": {
-        "oAuthBrandDisplayName": "Bughouse Arena",
-        "supportEmail": "neilandrewfuerzas@gmail.com"
+        "oAuthBrandDisplayName": "BugHouse Arena",
+        "supportEmail": "neilandrewfuerzas@gmail.com",
+        "authorizedRedirectUris": [
+          "https://bughousearena.firebaseapp.com/__/auth/handler",
+          "https://bughousearena.web.app/__/auth/handler"
+        ]
       }
     }
   },

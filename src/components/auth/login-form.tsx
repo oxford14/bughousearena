@@ -1,18 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
 import {
+  completeGoogleRedirectSignIn,
   signInWithEmail,
   signInWithGoogle,
   signUpWithEmail,
 } from "@/lib/firebase/auth";
+import { formatAuthError } from "@/lib/firebase/auth-errors";
 import { toast } from "sonner";
 import { useSound } from "@/providers/sound-provider";
 
@@ -22,9 +24,50 @@ export function LoginForm() {
   const { play } = useSound();
   const nextPath = searchParams.get("next") ?? "/app/lobby";
   const [loading, setLoading] = useState(false);
+  const [checkingRedirect, setCheckingRedirect] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [authTab, setAuthTab] = useState<"signin" | "signup">("signin");
+  const [hostHint, setHostHint] = useState<string | null>(null);
+
+  useEffect(() => {
+    const host = window.location.hostname;
+    const allowed =
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host.endsWith(".web.app") ||
+      host.endsWith(".firebaseapp.com") ||
+      host.endsWith(".vercel.app");
+    if (!allowed) {
+      setHostHint(
+        `Google sign-in requires http://localhost:3000 — you are on ${window.location.host}.`
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCheckingRedirect(true);
+    void completeGoogleRedirectSignIn()
+      .then((user) => {
+        if (cancelled || !user) return;
+        play("uiSuccess");
+        toast.success("Welcome to the arena!");
+        router.replace(nextPath);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error("[auth] redirect sign-in failed", error);
+        toast.error(formatAuthError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingRedirect(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nextPath, play, router]);
 
   const handleGoogle = async () => {
     setLoading(true);
@@ -33,9 +76,13 @@ export function LoginForm() {
       play("uiSuccess");
       toast.success("Welcome to the arena!");
       router.push(nextPath);
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message === "REDIRECT_PENDING") {
+        return;
+      }
       play("uiError");
-      toast.error("Google sign-in failed. Check Firebase configuration.");
+      console.error("[auth] google sign-in failed", error);
+      toast.error(formatAuthError(error));
     } finally {
       setLoading(false);
     }
@@ -78,21 +125,57 @@ export function LoginForm() {
         Sign in to play ranked, join houses, and track your stats.
       </p>
 
+      {hostHint ? (
+        <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-xs text-amber-200">
+          {hostHint}
+        </p>
+      ) : null}
+
       <Button
         variant="outline"
         className="w-full mb-6 cursor-pointer"
         onClick={handleGoogle}
-        disabled={loading}
+        disabled={loading || checkingRedirect}
       >
-        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Continue with Google"}
+        {loading || checkingRedirect ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            {checkingRedirect ? "Completing sign-in…" : "Signing in…"}
+          </>
+        ) : (
+          "Continue with Google"
+        )}
       </Button>
 
-      <Tabs defaultValue="signin" onValueChange={() => play("uiTab")}>
-        <TabsList className="grid w-full grid-cols-2 mb-4">
-          <TabsTrigger value="signin" className="cursor-pointer">Sign In</TabsTrigger>
-          <TabsTrigger value="signup" className="cursor-pointer">Sign Up</TabsTrigger>
-        </TabsList>
-        <TabsContent value="signin" className="space-y-4">
+      <div
+        role="tablist"
+        aria-orientation="horizontal"
+        className="mb-4 grid h-8 w-full grid-cols-2 rounded-lg bg-muted p-[3px] text-muted-foreground"
+      >
+        {(["signin", "signup"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            aria-selected={authTab === tab}
+            className={cn(
+              "relative inline-flex h-[calc(100%-1px)] flex-1 cursor-pointer items-center justify-center rounded-md border border-transparent px-1.5 py-0.5 text-sm font-medium whitespace-nowrap transition-all hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
+              authTab === tab
+                ? "bg-background text-foreground shadow-sm dark:border-input dark:bg-input/30"
+                : "text-foreground/60 dark:text-muted-foreground"
+            )}
+            onClick={() => {
+              setAuthTab(tab);
+              play("uiTab");
+            }}
+          >
+            {tab === "signin" ? "Sign In" : "Sign Up"}
+          </button>
+        ))}
+      </div>
+
+      {authTab === "signin" ? (
+        <div role="tabpanel" className="space-y-4">
           <div>
             <Label htmlFor="email">Email</Label>
             <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
@@ -104,8 +187,9 @@ export function LoginForm() {
           <Button className="w-full btn-arena-primary cursor-pointer" onClick={handleSignIn} disabled={loading}>
             Sign In
           </Button>
-        </TabsContent>
-        <TabsContent value="signup" className="space-y-4">
+        </div>
+      ) : (
+        <div role="tabpanel" className="space-y-4">
           <div>
             <Label htmlFor="name">Display Name</Label>
             <Input id="name" value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
@@ -121,8 +205,8 @@ export function LoginForm() {
           <Button className="w-full btn-arena-primary cursor-pointer" onClick={handleSignUp} disabled={loading}>
             Create Account
           </Button>
-        </TabsContent>
-      </Tabs>
+        </div>
+      )}
 
       <p className="text-center text-sm text-muted-foreground mt-6">
         <Link href="/" className="text-primary hover:underline cursor-pointer">
