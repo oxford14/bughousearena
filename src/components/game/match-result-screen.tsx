@@ -1,0 +1,296 @@
+"use client";
+
+import { useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
+import { motion } from "framer-motion";
+import Image from "next/image";
+import { Home, Trophy, Skull } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { VictoryConfetti } from "@/components/game/victory-confetti";
+import {
+  didPlayerWin,
+  formatDuration,
+  formatMatchEndReason,
+  getPlayerTeam,
+  matchDurationSeconds,
+} from "@/lib/game/match-end";
+import {
+  getPhysicalBoardLabel,
+  getPhysicalBoardLabelForSeat,
+  PHYSICAL_BOARD_SEATS,
+  type PhysicalBoardId,
+} from "@/lib/game/bughouse-engine";
+import { dedupePlayersByUid, getTeamPlayers } from "@/lib/game/match-setup";
+import { clearActiveMatchSession } from "@/lib/game/matchmaking";
+import { saveMatchHistory } from "@/lib/social/match-history";
+import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
+import { isBotUid } from "@/lib/game/bots";
+import { useSound } from "@/providers/sound-provider";
+import type { BoardDocument, MatchDocument } from "@/types/firestore";
+import { cn } from "@/lib/utils";
+
+interface MatchResultScreenProps {
+  match: MatchDocument;
+  boards: BoardDocument[];
+  userUid?: string;
+}
+
+export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenProps) {
+  const router = useRouter();
+  const { play } = useSound();
+  const historySavedRef = useRef(false);
+  const soundPlayedRef = useRef(false);
+
+  const myTeam = userUid ? getPlayerTeam(match, userUid) : null;
+  const won = userUid ? didPlayerWin(match, userUid) : null;
+  const isVictory = won === true;
+  const isDefeat = won === false;
+
+  const teammates = useMemo(
+    () => (myTeam ? getTeamPlayers(match.players, myTeam) : []),
+    [match.players, myTeam]
+  );
+  const opponents = useMemo(() => {
+    if (!myTeam) return dedupePlayersByUid(match.players);
+    const oppTeam = myTeam === 1 ? 2 : 1;
+    return getTeamPlayers(match.players, oppTeam).filter((p) => p.uid !== userUid);
+  }, [match.players, myTeam, userUid]);
+
+  const physicalBoards = useMemo(() => {
+    const physicalIds: PhysicalBoardId[] = ["alpha", "bravo"];
+    return physicalIds.map((physicalId) => {
+      const seatBoards = PHYSICAL_BOARD_SEATS[physicalId]
+        .map((seatId) => boards.find((b) => b.id === seatId))
+        .filter((b): b is BoardDocument => b != null);
+      const status = seatBoards.some((b) => b.boardStatus === "checkmate")
+        ? "checkmate"
+        : seatBoards.some((b) => b.boardStatus === "stalemate")
+          ? "stalemate"
+          : "active";
+      return {
+        physicalId,
+        label: getPhysicalBoardLabel(physicalId),
+        status,
+      };
+    });
+  }, [boards]);
+
+  const durationSec = matchDurationSeconds(match);
+  const endLabel = formatMatchEndReason(match, userUid);
+
+  useEffect(() => {
+    if (soundPlayedRef.current) return;
+    soundPlayedRef.current = true;
+    if (isVictory) play("uiSuccess");
+    else if (isDefeat) play("uiError");
+  }, [isVictory, isDefeat, play]);
+
+  useEffect(() => {
+    if (!userUid || myTeam == null || historySavedRef.current) return;
+    historySavedRef.current = true;
+
+    void saveMatchHistory(userUid, {
+      matchId: match.id,
+      mode: match.mode,
+      result: isVictory ? "win" : isDefeat ? "loss" : "draw",
+      opponents: opponents.map((p) => p.displayName),
+      duration: durationSec ?? 0,
+      ratingChange: 0,
+    }).catch(() => {});
+  }, [userUid, myTeam, match.id, match.mode, isVictory, isDefeat, opponents, durationSec]);
+
+  const handleReturnLobby = async () => {
+    play("uiNav");
+    if (userUid) {
+      await clearActiveMatchSession(userUid);
+    }
+    router.push("/app/lobby");
+  };
+
+  const headline = isVictory ? "Victory" : isDefeat ? "Defeat" : "Match Over";
+  const Icon = isVictory ? Trophy : Skull;
+
+  return (
+    <div className="relative min-h-[70vh] flex items-center justify-center py-8 px-4">
+      {isVictory && <VictoryConfetti active />}
+
+      <motion.div
+        className="relative z-10 w-full max-w-lg"
+        initial={{ opacity: 0, y: 24, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <div
+          className={cn(
+            "arena-card rounded-2xl border overflow-hidden",
+            isVictory
+              ? "border-emerald-500/40 shadow-[0_0_48px_rgba(16,185,129,0.15)]"
+              : isDefeat
+                ? "border-red-500/30 shadow-[0_0_32px_rgba(239,68,68,0.08)]"
+                : "border-primary/25"
+          )}
+        >
+          <div
+            className={cn(
+              "px-6 py-8 text-center border-b border-primary/15",
+              isVictory
+                ? "bg-gradient-to-b from-emerald-500/15 to-transparent"
+                : isDefeat
+                  ? "bg-gradient-to-b from-red-500/10 to-transparent"
+                  : "bg-gradient-to-b from-primary/10 to-transparent"
+            )}
+          >
+            <motion.div
+              initial={{ scale: 0.6, rotate: -8 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ delay: 0.15, type: "spring", stiffness: 260, damping: 18 }}
+              className={cn(
+                "mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full",
+                isVictory
+                  ? "bg-emerald-500/20 text-emerald-400"
+                  : isDefeat
+                    ? "bg-red-500/15 text-red-400"
+                    : "bg-primary/20 text-primary"
+              )}
+            >
+              <Icon className="h-8 w-8" />
+            </motion.div>
+
+            <h1
+              className={cn(
+                "font-heading text-3xl md:text-4xl tracking-wide mb-2",
+                isVictory && "neon-glow text-emerald-300",
+                isDefeat && "text-red-300"
+              )}
+            >
+              {headline}
+            </h1>
+
+            <p className="text-sm text-muted-foreground max-w-sm mx-auto">{endLabel}</p>
+
+            <div className="flex flex-wrap items-center justify-center gap-2 mt-4">
+              <Badge variant="secondary" className="capitalize">
+                {match.mode}
+              </Badge>
+              {match.winnerTeam && (
+                <Badge variant={isVictory ? "default" : "outline"}>
+                  Team {match.winnerTeam} wins
+                </Badge>
+              )}
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {formatDuration(durationSec)}
+              </span>
+            </div>
+          </div>
+
+          <div className="px-6 py-5 space-y-4">
+            {myTeam != null && (
+              <>
+                <section>
+                  <p className="text-[10px] uppercase tracking-wider text-secondary mb-2">
+                    Your team
+                  </p>
+                  <ul className="space-y-2">
+                    {teammates.map((player) => (
+                      <li
+                        key={player.boardId || player.uid}
+                        className="flex items-center gap-3 rounded-lg border border-primary/15 bg-muted/10 px-3 py-2"
+                      >
+                        <Avatar className="h-9 w-9">
+                          <AvatarImage src={player.photoURL ?? undefined} />
+                          <AvatarFallback>{player.displayName[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium truncate">
+                            {player.displayName}
+                            {player.uid === userUid ? (
+                              <span className="text-muted-foreground font-normal"> (you)</span>
+                            ) : null}
+                            {isBotUid(player.uid) ? (
+                              <span className="text-muted-foreground font-normal"> · Bot</span>
+                            ) : null}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {getPhysicalBoardLabelForSeat(player.boardId)} · {player.rating} rating
+                          </p>
+                        </div>
+                        <Image
+                          src={getRankAssetPath(player.rankTier ?? getRankTier(player.rating))}
+                          alt=""
+                          width={22}
+                          height={22}
+                        />
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+
+                <section>
+                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                    Opponents
+                  </p>
+                  <ul className="space-y-2">
+                    {opponents.map((player) => (
+                      <li
+                        key={player.boardId || player.uid}
+                        className="flex items-center gap-3 rounded-lg border border-primary/10 px-3 py-2 opacity-90"
+                      >
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={player.photoURL ?? undefined} />
+                          <AvatarFallback>{player.displayName[0]}</AvatarFallback>
+                        </Avatar>
+                        <span className="text-sm truncate flex-1">
+                          {player.displayName}
+                          <span className="text-muted-foreground">
+                            {" "}
+                            · {getPhysicalBoardLabelForSeat(player.boardId)}
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              </>
+            )}
+
+            {physicalBoards.length > 0 && (
+              <section className="rounded-lg border border-primary/10 bg-[#0a0618]/50 px-3 py-2.5">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
+                  Final position
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                  {physicalBoards.map((board) => {
+                    const status =
+                      board.status === "checkmate"
+                        ? "Checkmate"
+                        : board.status === "stalemate"
+                          ? "Frozen"
+                          : "Active";
+                    return (
+                      <div key={board.physicalId} className="flex justify-between gap-2">
+                        <span>{board.label}</span>
+                        <span className="text-foreground/80">{status}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </div>
+
+          <div className="px-6 pb-6">
+            <Button
+              className="w-full btn-arena-primary cursor-pointer h-11 text-base"
+              onClick={() => void handleReturnLobby()}
+            >
+              <Home className="h-4 w-4 mr-2" />
+              Return to Lobby
+            </Button>
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+}
