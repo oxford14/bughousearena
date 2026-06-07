@@ -2,15 +2,17 @@
 
 import { useMemo } from "react";
 import { Chessboard } from "react-chessboard";
-import { getArenaChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getChessboardOptions } from "@/lib/game/arena-board-theme";
+import { useBoardTheme } from "@/providers/board-theme-provider";
 
 /** Qh6# — queen drop; Black Kh8; Rg8 blocks g8; h7/g7 open for the check along the h-file. */
 const DROP_MATE_FEN = "6rk/5p2/7Q/8/8/8/8/4K3 b - - 0 1";
 
 export function RulesDropMateBoard() {
+  const { themeId } = useBoardTheme();
   const options = useMemo(
     () =>
-      getArenaChessboardOptions({
+      getChessboardOptions(themeId, {
         position: DROP_MATE_FEN,
         allowDragging: false,
         showAnimations: false,
@@ -21,7 +23,7 @@ export function RulesDropMateBoard() {
           },
         },
       }),
-    []
+    [themeId]
   );
 
   return (

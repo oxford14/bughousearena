@@ -22,6 +22,7 @@ import {
 } from "@/lib/social/profile-stats";
 import { useRouter } from "next/navigation";
 import { SoundToggle } from "@/components/arena/sound-toggle";
+import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { ChangePasswordForm } from "@/components/arena/change-password-form";
 import type { UserProfile } from "@/types/firestore";
 
@@ -112,8 +113,9 @@ export default function ProfilePage() {
       </div>
 
       <Card className="arena-card border-primary/20">
-        <CardContent className="pt-6">
+        <CardContent className="pt-6 space-y-6">
           <SoundToggle />
+          <BoardThemeSelector />
         </CardContent>
       </Card>
 

@@ -179,6 +179,8 @@ export interface PartyDocument {
   code: string;
   members: PartyMember[];
   memberUids: string[];
+  /** Members who opted in to matchmaking with the party leader. */
+  readyUids?: string[];
   createdAt: Timestamp;
 }
 

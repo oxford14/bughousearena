@@ -33,6 +33,7 @@ import { useBotController } from "@/hooks/use-bot-controller";
 import { useMatchClocks } from "@/hooks/use-match-clocks";
 import { useOptimisticBoards } from "@/hooks/use-optimistic-boards";
 import { ArenaBoardPanel } from "@/components/game/arena-board-panel";
+import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { MatchTeamChat } from "@/components/game/match-team-chat";
 
 interface BughouseArenaProps {
@@ -70,14 +71,20 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   const boardsInitializedRef = useRef(false);
   const localMoveBoardRef = useRef<string | null>(null);
 
-  const myBoard = boards.find((b) => b.playerUid === user?.uid);
+  const myPlayer = match.players.find((p) => p.uid === user?.uid);
+  const myBoard =
+    boards.find((b) => b.id === myPlayer?.boardId) ??
+    boards.find((b) => b.playerUid === user?.uid);
   const partnerBoard = boards.find((b) => b.id === myBoard?.partnerBoardId);
-  const myTeam = myBoard?.team ?? match.players.find((p) => p.uid === user?.uid)?.team;
+  const myTeam = myPlayer?.team ?? myBoard?.team;
 
   const { displayBoards, applyOptimistic, clearOptimistic } = useOptimisticBoards(boards);
 
   const visibleBoards = useMemo(() => {
-    const myDisplayBoard = displayBoards.find((b) => b.playerUid === user?.uid);
+    const mySeatId = myPlayer?.boardId;
+    const myDisplayBoard =
+      displayBoards.find((b) => b.id === mySeatId) ??
+      displayBoards.find((b) => b.playerUid === user?.uid);
     const partnerDisplayBoard = displayBoards.find(
       (b) => b.id === myDisplayBoard?.partnerBoardId
     );
@@ -86,7 +93,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     }
     if (myDisplayBoard) return [myDisplayBoard];
     return displayBoards.slice(0, 2);
-  }, [displayBoards, user?.uid]);
+  }, [displayBoards, myPlayer?.boardId, user?.uid]);
 
   const { physicalClocks, getBoardClocks, getPhysicalBoardLabel, getPhysicalSeatPlayer } =
     useMatchClocks(match, displayBoards);
@@ -157,7 +164,10 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     (boardId: string, sourceSquare: string, targetSquare: string): boolean => {
       if (!user) return false;
       const board = displayBoards.find((b) => b.id === boardId);
-      if (!board || board.playerUid !== user.uid) return false;
+      const isMySeat =
+        board &&
+        (board.id === myPlayer?.boardId || board.playerUid === user.uid);
+      if (!isMySeat) return false;
       if (board.boardStatus && board.boardStatus !== "active") return false;
 
       const seatColor = getSeatColor(boardId as BoardSeatId);
@@ -180,7 +190,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
 
       return true;
     },
-    [applyOptimistic, clearOptimistic, displayBoards, match.id, play, user]
+    [applyOptimistic, clearOptimistic, displayBoards, match.id, myPlayer?.boardId, play, user]
   );
 
   const handleDropSync = useCallback(
@@ -190,7 +200,10 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       if (!dropPiece) return false;
 
       const board = displayBoards.find((b) => b.id === boardId);
-      if (!board || board.playerUid !== user.uid) return false;
+      const isMySeat =
+        board &&
+        (board.id === myPlayer?.boardId || board.playerUid === user.uid);
+      if (!isMySeat) return false;
       if (board.boardStatus && board.boardStatus !== "active") return false;
 
       const reserve = board.captured as PieceSymbol[];
@@ -214,7 +227,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       setSelectedPiece(null);
       return true;
     },
-    [applyOptimistic, clearOptimistic, displayBoards, match.id, play, selectedPiece, user]
+    [applyOptimistic, clearOptimistic, displayBoards, match.id, myPlayer?.boardId, play, selectedPiece, user]
   );
 
   const handleResign = useCallback(async () => {
@@ -232,7 +245,8 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   }, [match.id, play, user]);
 
   const boardGrid = visibleBoards.map((board) => {
-    const isMine = board.playerUid === user?.uid;
+    const isMine =
+      board.id === myPlayer?.boardId || board.playerUid === user?.uid;
     const isPartner = board.id === myBoard?.partnerBoardId;
     const player = match.players.find((p) => p.uid === board.playerUid);
     // The opponent shares this physical board on the opposite color seat.
@@ -314,6 +328,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
               ? ` · ${formatTimeControl(matchTimeControlSeconds(match))}`
               : null}
           </Badge>
+          <BoardThemeSelector compact />
           <Button
             variant="outline"
             size="sm"

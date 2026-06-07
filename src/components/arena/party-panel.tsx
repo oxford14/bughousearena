@@ -19,6 +19,7 @@ import {
   inviteFriendToParty,
   isPartyLeader,
   leaveParty,
+  setPartyMemberReady,
   subscribeToPartyInvites,
   subscribeToUserParty,
 } from "@/lib/social/party";
@@ -119,9 +120,28 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
     }
   };
 
+  const handleToggleReady = async () => {
+    if (!user || !party) return;
+    const isReady = party.readyUids?.includes(user.uid) ?? false;
+    setBusy(true);
+    try {
+      play("uiClick");
+      await setPartyMemberReady(party.id, user.uid, !isReady);
+    } catch {
+      toast.error("Could not update ready status.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const leader = party ? isPartyLeader(party, user?.uid ?? "") : true;
   const canQueue = canQueueParty(party, user?.uid ?? "");
   const openSlots = 2 - (party?.members.length ?? 0);
+  const isReady = party?.readyUids?.includes(user?.uid ?? "") ?? false;
+  const readyPartnerCount =
+    party?.members.filter(
+      (m) => m.uid !== user?.uid && party.readyUids?.includes(m.uid)
+    ).length ?? 0;
   const inviteableFriends = friends.filter(
     (f) => !party?.memberUids.includes(f.friendId)
   );
@@ -142,8 +162,8 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
       </CardHeader>
       <CardContent className="relative z-10 space-y-4">
         <p className="text-sm text-muted-foreground">
-          Team up with a partner before queuing. Parties stay on the same bughouse team.
-          Solo players are auto-paired with others.
+          Team up with a partner before queuing. Parties stay on the same bughouse team when
+          both players tap Ready. Solo players are auto-paired with others.
         </p>
 
         {invites.length > 0 && !party && (
@@ -197,6 +217,7 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
                     <p className="text-sm font-medium leading-none">{member.displayName}</p>
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {member.uid === party.leaderUid ? "Leader" : "Partner"} · {member.rating}
+                      {party.readyUids?.includes(member.uid) ? " · Ready" : ""}
                     </p>
                   </div>
                 </div>
@@ -274,6 +295,17 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
             )}
 
             <div className="flex flex-wrap items-center gap-2">
+              {party.members.length > 1 && !searching && (
+                <Button
+                  size="sm"
+                  variant={isReady ? "default" : "outline"}
+                  className="cursor-pointer"
+                  onClick={() => void handleToggleReady()}
+                  disabled={busy}
+                >
+                  {isReady ? "Ready" : "Ready to play"}
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="ghost"
@@ -287,7 +319,18 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
 
             {!leader && (
               <p className="text-xs text-muted-foreground">
-                Waiting for party leader to find a match…
+                Tap Ready to play when you want to join your leader&apos;s next match. You won&apos;t
+                be queued until you do.
+              </p>
+            )}
+            {leader && party.members.length > 1 && readyPartnerCount === 0 && (
+              <p className="text-xs text-muted-foreground">
+                Your partner hasn&apos;t readied up — you&apos;ll queue solo until they tap Ready.
+              </p>
+            )}
+            {leader && party.members.length > 1 && readyPartnerCount > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Partner is ready — you&apos;ll queue together on the same team.
               </p>
             )}
             {party.members.length === 1 && leader && (
@@ -307,7 +350,10 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
         )}
 
         {party && !canQueue && searching && (
-          <p className="text-xs text-primary">Your leader is searching for a match…</p>
+          <p className="text-xs text-primary">
+            Your leader is searching for a match
+            {isReady ? " — you're queued together." : "."}
+          </p>
         )}
       </CardContent>
     </Card>

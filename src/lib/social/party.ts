@@ -67,6 +67,7 @@ export async function createParty(user: UserProfile): Promise<string> {
     code: partyCode(),
     members: [toPartyMember(user)],
     memberUids: [user.uid],
+    readyUids: [],
     createdAt: serverTimestamp(),
   });
   return ref.id;
@@ -95,9 +96,9 @@ async function joinPartyInternal(
   const members = [...party.members, member];
   const memberUids = [...party.memberUids, user.uid];
 
-  await updateDoc(partyRef, { members, memberUids });
+  await updateDoc(partyRef, { members, memberUids, readyUids: [] });
 
-  return { ...party, members, memberUids };
+  return { ...party, members, memberUids, readyUids: [] };
 }
 
 export async function joinPartyById(
@@ -135,7 +136,31 @@ export async function leaveParty(partyId: string, uid: string): Promise<void> {
   const leaderUid =
     party.leaderUid === uid ? members[0]!.uid : party.leaderUid;
 
-  await updateDoc(partyRef, { members, memberUids, leaderUid });
+  const readyUids = (party.readyUids ?? []).filter((id) => id !== uid);
+  await updateDoc(partyRef, { members, memberUids, leaderUid, readyUids });
+}
+
+export async function setPartyMemberReady(
+  partyId: string,
+  uid: string,
+  ready: boolean
+): Promise<void> {
+  const partyRef = doc(getFirebaseDb(), "parties", partyId);
+  const partySnap = await getDoc(partyRef);
+  if (!partySnap.exists()) return;
+
+  const party = partySnap.data() as PartyDocument;
+  if (!party.memberUids.includes(uid)) return;
+
+  const readyUids = new Set(party.readyUids ?? []);
+  if (ready) readyUids.add(uid);
+  else readyUids.delete(uid);
+
+  await updateDoc(partyRef, { readyUids: [...readyUids] });
+}
+
+export async function clearPartyReady(partyId: string): Promise<void> {
+  await updateDoc(doc(getFirebaseDb(), "parties", partyId), { readyUids: [] });
 }
 
 export async function inviteFriendToParty(

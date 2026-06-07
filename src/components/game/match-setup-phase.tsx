@@ -5,7 +5,12 @@ import { motion } from "framer-motion";
 import { MessageCircle, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { arenaPieces } from "@/components/game/arena-pieces";
+import {
+  formatSetupSeatLabel,
+  SetupSeatPreview,
+} from "@/components/game/setup-seat-preview";
 import {
   getSetupSecondsRemaining,
   getTeamPlayers,
@@ -56,7 +61,7 @@ function ColorPawnButton({
         "group relative flex flex-col items-center gap-3 rounded-2xl border-2 px-8 py-6 transition-all",
         disabled ? "cursor-not-allowed opacity-45" : "cursor-pointer",
         selected
-          ? "border-[#4ade80] bg-[#4ade80]/10 shadow-[0_0_28px_rgba(74,222,128,0.35)]"
+          ? "border-[#4ade80] bg-[#4ade80]/10 shadow-[0_0_28px_rgba(74,222,128,0.35)] ring-2 ring-[#4ade80]/40"
           : "border-primary/35 bg-[#12082a]/80 hover:border-primary hover:bg-primary/10"
       )}
     >
@@ -68,6 +73,9 @@ function ColorPawnButton({
         <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
           Teammate picked
         </span>
+      ) : null}
+      {selected ? (
+        <span className="text-[10px] uppercase tracking-wider text-[#4ade80]">Selected</span>
       ) : null}
     </button>
   );
@@ -83,8 +91,9 @@ function TeammateRow({
   previewColor: PlayerColor | null;
 }) {
   const assigned = choice ?? previewColor;
-  const label =
+  const colorLabel =
     assigned === "w" ? "White" : assigned === "b" ? "Black" : "Choosing…";
+  const seatLabel = formatSetupSeatLabel(player.team, choice ?? previewColor);
 
   return (
     <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/20 bg-card/40 px-3 py-2 text-sm">
@@ -94,14 +103,19 @@ function TeammateRow({
           <span className="text-muted-foreground font-normal"> · Bot</span>
         ) : null}
       </span>
-      <span
-        className={cn(
-          "shrink-0 text-xs uppercase tracking-wider",
-          assigned ? "text-secondary" : "text-muted-foreground"
-        )}
-      >
-        {label}
-      </span>
+      <div className="shrink-0 text-right">
+        <span
+          className={cn(
+            "block text-xs uppercase tracking-wider",
+            assigned ? "text-secondary" : "text-muted-foreground"
+          )}
+        >
+          {colorLabel}
+        </span>
+        {seatLabel ? (
+          <span className="block text-[10px] text-muted-foreground">{seatLabel}</span>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -126,9 +140,6 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const previewColor = previewTeamAssignment(teammates, choices, myUid);
-  const partnerPreview = partner
-    ? previewTeamAssignment(teammates, choices, partner.uid)
-    : null;
 
   const endsMs = getSetupEndsAtMs(match);
 
@@ -207,7 +218,7 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
                 </h1>
                 <p className="mt-2 text-sm text-muted-foreground max-w-md">
                   Pick white or black before the match starts. If your teammate already chose,
-                  you&apos;ll take the other color. Unpicked seats are assigned when time runs out.
+                  you&apos;ll take the other color. Tap the other pawn to switch your pick.
                 </p>
               </div>
               <div className="flex flex-col items-center rounded-xl border border-primary/40 bg-primary/10 px-6 py-3 min-w-[88px]">
@@ -244,12 +255,20 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
               />
             </div>
 
+            {myChoice ? (
+              <p className="text-center text-xs text-muted-foreground">
+                Tap the other color to switch your pick.
+              </p>
+            ) : null}
+
             {!myChoice && partnerChoice ? (
               <p className="text-center text-sm text-secondary">
                 {partner!.displayName} chose {partnerChoice === "w" ? "White" : "Black"} — you&apos;re
                 assigned {previewColor === "w" ? "White" : "Black"}.
               </p>
             ) : null}
+
+            <SetupSeatPreview team={myTeam} previewColor={previewColor} />
 
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
@@ -267,52 +286,58 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
             </div>
           </div>
 
-          <div className="flex w-full lg:w-72 flex-col rounded-xl border border-primary/25 bg-[#0a0618]/70">
-            <div className="flex items-center gap-2 border-b border-primary/20 px-3 py-2.5 text-sm font-medium">
-              <MessageCircle className="h-4 w-4 text-secondary" />
-              Team chat
+          <div className="flex w-full lg:w-72 flex-col gap-4">
+            <div className="rounded-xl border border-primary/25 bg-[#0a0618]/70 p-3">
+              <BoardThemeSelector compact />
             </div>
-            <div className="flex-1 min-h-[180px] max-h-[240px] overflow-y-auto px-3 py-2 space-y-2">
-              {messages.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-4 text-center">
-                  Coordinate with your teammate — who takes white?
-                </p>
-              ) : (
-                messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={cn(
-                      "text-sm rounded-lg px-2.5 py-1.5",
-                      msg.uid === myUid ? "bg-primary/20 ml-4" : "bg-muted/40 mr-4"
-                    )}
-                  >
-                    <span className="text-[10px] uppercase tracking-wider text-secondary block mb-0.5">
-                      {msg.uid === myUid ? "You" : msg.displayName}
-                    </span>
-                    {msg.text}
-                  </div>
-                ))
-              )}
-              <div ref={chatEndRef} />
+
+            <div className="flex flex-1 flex-col rounded-xl border border-primary/25 bg-[#0a0618]/70">
+              <div className="flex items-center gap-2 border-b border-primary/20 px-3 py-2.5 text-sm font-medium">
+                <MessageCircle className="h-4 w-4 text-secondary" />
+                Team chat
+              </div>
+              <div className="flex-1 min-h-[180px] max-h-[240px] overflow-y-auto px-3 py-2 space-y-2">
+                {messages.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-4 text-center">
+                    Coordinate with your teammate — who takes white?
+                  </p>
+                ) : (
+                  messages.map((msg) => (
+                    <div
+                      key={msg.id}
+                      className={cn(
+                        "text-sm rounded-lg px-2.5 py-1.5",
+                        msg.uid === myUid ? "bg-primary/20 ml-4" : "bg-muted/40 mr-4"
+                      )}
+                    >
+                      <span className="text-[10px] uppercase tracking-wider text-secondary block mb-0.5">
+                        {msg.uid === myUid ? "You" : msg.displayName}
+                      </span>
+                      {msg.text}
+                    </div>
+                  ))
+                )}
+                <div ref={chatEndRef} />
+              </div>
+              <form
+                className="flex gap-2 border-t border-primary/20 p-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void handleSendChat();
+                }}
+              >
+                <Input
+                  value={chatText}
+                  onChange={(e) => setChatText(e.target.value)}
+                  placeholder="Message your team…"
+                  maxLength={500}
+                  className="h-9 text-sm"
+                />
+                <Button type="submit" size="sm" className="cursor-pointer shrink-0">
+                  Send
+                </Button>
+              </form>
             </div>
-            <form
-              className="flex gap-2 border-t border-primary/20 p-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void handleSendChat();
-              }}
-            >
-              <Input
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                placeholder="Message your team…"
-                maxLength={500}
-                className="h-9 text-sm"
-              />
-              <Button type="submit" size="sm" className="cursor-pointer shrink-0">
-                Send
-              </Button>
-            </form>
           </div>
         </div>
       </motion.div>

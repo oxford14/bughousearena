@@ -50,6 +50,9 @@ import {
   resolveQueueTimeControl,
   STANDARD_TIME_CONTROL_SEC,
 } from "./time-control";
+import { resolveQueueMembers } from "./queue-members";
+
+export { resolveQueueMembers };
 
 export { BOT_QUEUE_TIMEOUT_MS, BOT_BACKFILL_RETRY_MS };
 
@@ -114,13 +117,15 @@ function normalizeQueueEntry(
   };
 }
 
-function toMatchmakingMember(user: UserProfile): MatchmakingMember {
-  return {
-    uid: user.uid,
-    displayName: user.displayName,
-    photoURL: user.photoURL,
-    rating: user.rating,
-  };
+export async function clearUserQueueEntries(uid: string): Promise<void> {
+  const db = getFirebaseDb();
+  const snap = await getDocs(
+    query(
+      collection(db, "matchmaking"),
+      where("memberUids", "array-contains", uid)
+    )
+  );
+  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
 }
 
 export async function joinQueue(
@@ -129,14 +134,9 @@ export async function joinQueue(
   party?: PartyDocument | null,
   timeControlSec?: number
 ): Promise<string> {
-  const members: MatchmakingMember[] = party?.members.length
-    ? party.members.map((m) => ({
-        uid: m.uid,
-        displayName: m.displayName,
-        photoURL: m.photoURL,
-        rating: m.rating,
-      }))
-    : [toMatchmakingMember(user)];
+  await clearUserQueueEntries(user.uid);
+
+  const members = resolveQueueMembers(user, party);
 
   if (party && party.leaderUid !== user.uid) {
     throw new Error("Only the party leader can queue for matchmaking");

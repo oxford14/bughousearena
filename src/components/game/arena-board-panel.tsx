@@ -9,8 +9,9 @@ import { Badge } from "@/components/ui/badge";
 import type { BoardDocument } from "@/types/firestore";
 import type { MatchPlayer } from "@/types/firestore";
 import { getValidDropSquares } from "@/lib/game/move-validator";
-import { getArenaChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getChessboardOptions } from "@/lib/game/arena-board-theme";
 import { canDropPiece, getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
+import { useBoardTheme } from "@/providers/board-theme-provider";
 import { pieceTypeToSymbol } from "@/components/game/arena-pieces";
 import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
 import { isBotUid } from "@/lib/game/bots";
@@ -98,6 +99,7 @@ export function ArenaBoardPanel({
   onPlaySelect,
 }: ArenaBoardPanelProps) {
   const [hoverSquare, setHoverSquare] = useState<string | null>(null);
+  const { themeId } = useBoardTheme();
 
   const seatColor = getSeatColor(board.id as BoardSeatId);
   const reserve = board.captured as PieceSymbol[];
@@ -111,7 +113,7 @@ export function ArenaBoardPanel({
 
   const chessboardOptions = useMemo(
     () =>
-      getArenaChessboardOptions({
+      getChessboardOptions(themeId, {
         position: board.fen,
         boardOrientation,
         allowDragging: isMine,
@@ -180,6 +182,7 @@ export function ArenaBoardPanel({
       onSelectPiece,
       reserve,
       selectedPiece,
+      themeId,
       validDropSquares,
     ]
   );

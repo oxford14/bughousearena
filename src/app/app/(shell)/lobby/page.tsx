@@ -13,11 +13,16 @@ import {
 } from "@/components/arena/lobby/match-mode-panel";
 import { useAuth } from "@/providers/auth-provider";
 import {
+  clearUserQueueEntries,
   joinQueue,
   leaveQueue,
   subscribeToQueue,
 } from "@/lib/game/matchmaking";
-import { canQueueParty, subscribeToUserParty } from "@/lib/social/party";
+import {
+  canQueueParty,
+  clearPartyReady,
+  subscribeToUserParty,
+} from "@/lib/social/party";
 import type { PartyDocument } from "@/types/firestore";
 import { toast } from "sonner";
 import { useSound } from "@/providers/sound-provider";
@@ -45,6 +50,7 @@ export default function LobbyPage() {
   );
   const matchFoundRef = useRef(false);
   const queueUnsubRef = useRef<(() => void) | null>(null);
+  const queueIdRef = useRef<string | null>(null);
   const botFailToastRef = useRef(false);
 
   const onMatchFoundFromQueue = useCallback(() => {
@@ -54,8 +60,9 @@ export default function LobbyPage() {
     queueUnsubRef.current = null;
     setSearching(false);
     dismissLobbyMusic(500);
+    if (party) void clearPartyReady(party.id);
     // ActiveMatchListener routes via users/{uid}/session/active.
-  }, []);
+  }, [party]);
 
   useEffect(() => {
     if (!searching) {
@@ -70,8 +77,32 @@ export default function LobbyPage() {
 
   useEffect(() => {
     if (!user) return;
+    void clearUserQueueEntries(user.uid);
     return subscribeToUserParty(user.uid, setParty);
   }, [user]);
+
+  useEffect(() => {
+    queueIdRef.current = queueId;
+  }, [queueId]);
+
+  useEffect(() => {
+    return () => {
+      queueUnsubRef.current?.();
+      queueUnsubRef.current = null;
+      const id = queueIdRef.current;
+      if (id) void leaveQueue(id);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!searching) return;
+    const onLeave = () => {
+      const id = queueIdRef.current;
+      if (id) void leaveQueue(id);
+    };
+    window.addEventListener("pagehide", onLeave);
+    return () => window.removeEventListener("pagehide", onLeave);
+  }, [searching]);
 
   useEffect(() => {
     if (!searching) return;
@@ -126,6 +157,9 @@ export default function LobbyPage() {
       await leaveQueue(queueId);
       setQueueId(null);
     }
+    if (party) {
+      await clearPartyReady(party.id);
+    }
     setSearching(false);
     matchFoundRef.current = false;
     setLiveHumansInQueue(0);
@@ -140,7 +174,7 @@ export default function LobbyPage() {
 
   const queueLabel =
     searching && liveHumansInQueue > 0
-      ? `${queueLabelBase} (${liveHumansInQueue} online)`
+      ? `${queueLabelBase} (${liveHumansInQueue} in queue)`
       : searching && activeMode === "casual"
         ? `${queueLabelBase} · ${getCasualTimeControlLabel(casualTimeControl)}`
         : queueLabelBase;

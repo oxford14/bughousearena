@@ -110,13 +110,15 @@ function shuffle<T>(items: T[]): T[] {
 
 export function isBotBoardTurn(
   board: BoardDocument,
-  occupantUid?: string
+  occupantUid?: string,
+  playingColor?: "w" | "b"
 ): boolean {
   const uid = occupantUid ?? board.playerUid;
   if (!isBotUid(uid) || board.isGameOver) return false;
   if (board.boardStatus && board.boardStatus !== "active") return false;
   const chess = new Chess(board.fen);
-  const seatColor = getSeatColor(board.id as BoardSeatId);
+  const seatColor =
+    playingColor ?? getSeatColor(board.id as BoardSeatId);
   return chess.turn() === seatColor && !chess.isGameOver();
 }
 

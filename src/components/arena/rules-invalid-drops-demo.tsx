@@ -2,7 +2,8 @@
 
 import { useMemo } from "react";
 import { Chessboard } from "react-chessboard";
-import { getArenaChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getChessboardOptions } from "@/lib/game/arena-board-theme";
+import { useBoardTheme } from "@/providers/board-theme-provider";
 
 /** Bd2 blocks Qc3 — legal drop while in check. */
 export const LEGAL_BLOCK_DROP_FEN = "7k/8/8/8/8/2q5/8/4K3 w - - 0 1";
@@ -11,9 +12,10 @@ export const LEGAL_BLOCK_DROP_FEN = "7k/8/8/8/8/2q5/8/4K3 w - - 0 1";
 export const ILLEGAL_SELF_CHECK_FEN = LEGAL_BLOCK_DROP_FEN;
 
 export function RulesLegalBlockDropBoard() {
+  const { themeId } = useBoardTheme();
   const options = useMemo(
     () =>
-      getArenaChessboardOptions({
+      getChessboardOptions(themeId, {
         position: LEGAL_BLOCK_DROP_FEN,
         allowDragging: false,
         showAnimations: false,
@@ -26,7 +28,7 @@ export function RulesLegalBlockDropBoard() {
           },
         },
       }),
-    []
+    [themeId]
   );
 
   return (
@@ -37,9 +39,10 @@ export function RulesLegalBlockDropBoard() {
 }
 
 export function RulesInvalidSelfCheckBoard() {
+  const { themeId } = useBoardTheme();
   const options = useMemo(
     () =>
-      getArenaChessboardOptions({
+      getChessboardOptions(themeId, {
         position: ILLEGAL_SELF_CHECK_FEN,
         allowDragging: false,
         showAnimations: false,
@@ -49,7 +52,7 @@ export function RulesInvalidSelfCheckBoard() {
           h5: { background: "rgba(244, 63, 94, 0.45)", boxShadow: "inset 0 0 0 2px #f43f5e" },
         },
       }),
-    []
+    [themeId]
   );
 
   return (
@@ -63,9 +66,10 @@ export function RulesInvalidSelfCheckBoard() {
 export const ILLEGAL_PAWN_RANK_FEN = "3k4/8/8/8/8/8/8/4K3 w - - 0 1";
 
 export function RulesInvalidPawnRankBoard() {
+  const { themeId } = useBoardTheme();
   const options = useMemo(
     () =>
-      getArenaChessboardOptions({
+      getChessboardOptions(themeId, {
         position: ILLEGAL_PAWN_RANK_FEN,
         allowDragging: false,
         showAnimations: false,
@@ -73,7 +77,7 @@ export function RulesInvalidPawnRankBoard() {
           f8: { background: "rgba(244, 63, 94, 0.45)", boxShadow: "inset 0 0 0 2px #f43f5e" },
         },
       }),
-    []
+    [themeId]
   );
 
   return (
@@ -87,9 +91,10 @@ export function RulesInvalidPawnRankBoard() {
 export const PROMOTED_CAPTURE_FEN = "4k2q/8/8/8/8/8/8/4K2R w - - 0 1";
 
 export function RulesPromotedCaptureBoard() {
+  const { themeId } = useBoardTheme();
   const options = useMemo(
     () =>
-      getArenaChessboardOptions({
+      getChessboardOptions(themeId, {
         position: PROMOTED_CAPTURE_FEN,
         allowDragging: false,
         showAnimations: false,
@@ -100,7 +105,7 @@ export function RulesPromotedCaptureBoard() {
           },
         },
       }),
-    []
+    [themeId]
   );
 
   return (
