@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { BoardDocument, MatchDocument, MatchPlayer } from "@/types/firestore";
 import { getBotSkillForMember, isBotUid } from "@/lib/game/bots";
 import {
@@ -13,8 +13,10 @@ import {
   shouldBotDrop,
 } from "@/lib/game/bot-engine";
 import {
+  getPhysicalBoard,
   resolvePlayingColor,
   type BoardSeatId,
+  type PhysicalBoardId,
   type PieceSymbol,
 } from "@/lib/game/bughouse-engine";
 import { validateDrop, validateMove } from "@/lib/game/move-validator";
@@ -27,9 +29,10 @@ interface UseBotControllerOptions {
   humanUid: string | undefined;
 }
 
-const POLL_MS = 500;
+const POLL_MS = 400;
 const MAX_SUBMIT_ATTEMPTS = 6;
-const MAX_BOT_STEPS_PER_TICK = 4;
+const PARALLEL_THINK_CAP_MS = 400;
+const PHYSICAL_BOARDS: PhysicalBoardId[] = ["alpha", "bravo"];
 
 function matchHasBots(match: MatchDocument): boolean {
   if (match.hasBots) return true;
@@ -58,19 +61,35 @@ function botPlayingColor(bot: MatchPlayer, board: BoardDocument): "w" | "b" {
   return resolvePlayingColor(board.id as BoardSeatId, bot, board);
 }
 
-function findBotBoardToMove(
+interface BotMoveTarget {
+  board: BoardDocument;
+  bot: MatchPlayer;
+}
+
+/**
+ * One pending bot move per physical board (Alpha / Bravo).
+ * Bughouse boards are independent — partner moves never gate local turns.
+ */
+function findBotsToMoveByPhysicalBoard(
   match: MatchDocument,
   boards: BoardDocument[]
-): { board: BoardDocument; bot: MatchPlayer } | null {
+): Partial<Record<PhysicalBoardId, BotMoveTarget>> {
+  const pending: Partial<Record<PhysicalBoardId, BotMoveTarget>> = {};
+
   for (const bot of listBots(match)) {
     const board = boardForBot(bot, boards);
     if (!board) continue;
+
     const color = botPlayingColor(bot, board);
-    if (isBotBoardTurn(board, bot.uid, color)) {
-      return { board, bot };
+    if (!isBotBoardTurn(board, bot.uid, color)) continue;
+
+    const physicalId = getPhysicalBoard(board.id as BoardSeatId);
+    if (!pending[physicalId]) {
+      pending[physicalId] = { board, bot };
     }
   }
-  return null;
+
+  return pending;
 }
 
 /** Human client drives all bot moves (teammates and opponents) in bot-filled matches. */
@@ -81,82 +100,97 @@ export function useBotController({
 }: UseBotControllerOptions) {
   const boardsRef = useRef(boards);
   const matchRef = useRef(match);
-  const processingRef = useRef(false);
   const cancelledRef = useRef(false);
+  const processingByPhysicalRef = useRef<Partial<Record<PhysicalBoardId, boolean>>>({});
 
   boardsRef.current = boards;
   matchRef.current = match;
 
-  const boardsSignature = useMemo(
-    () =>
-      boards
-        .map((b) => `${b.id}:${b.fen}:${b.lastMove ?? ""}:${b.boardStatus ?? "active"}`)
-        .join("|"),
-    [boards]
-  );
-
   useEffect(() => {
     cancelledRef.current = false;
+    processingByPhysicalRef.current = {};
 
     if (match.status !== "active") return;
     if (!humanUid) return;
     if (!matchHasBots(match)) return;
     if (!isHumanParticipant(match, humanUid)) return;
 
-    const runBotStep = async () => {
-      if (processingRef.current || cancelledRef.current) return;
+    const runBotOnPhysicalBoard = async (
+      physicalId: PhysicalBoardId,
+      target: BotMoveTarget,
+      matchId: string,
+      peerAlsoWaiting: boolean
+    ) => {
+      if (processingByPhysicalRef.current[physicalId]) return;
+      processingByPhysicalRef.current[physicalId] = true;
 
-      processingRef.current = true;
+      const { board: botBoard, bot } = target;
+      const skill = getBotSkillForMember(bot);
+      const seatColor = botPlayingColor(bot, botBoard);
 
       try {
-        for (let step = 0; step < MAX_BOT_STEPS_PER_TICK; step++) {
-          if (cancelledRef.current) return;
+        const thinkMs = peerAlsoWaiting
+          ? Math.min(botThinkDelayMs(skill), PARALLEL_THINK_CAP_MS)
+          : botThinkDelayMs(skill);
 
-          const liveMatch = matchRef.current;
-          const liveBoards = boardsRef.current;
-          const next = findBotBoardToMove(liveMatch, liveBoards);
-          if (!next) break;
+        await new Promise((resolve) => setTimeout(resolve, thinkMs));
+        if (cancelledRef.current) return;
 
-          const { board: botBoard, bot } = next;
-          const skill = getBotSkillForMember(bot);
-          const seatColor = botPlayingColor(bot, botBoard);
-
-          await new Promise((resolve) => setTimeout(resolve, botThinkDelayMs(skill)));
-          if (cancelledRef.current) return;
-
-          const freshBoard = boardForBot(bot, boardsRef.current);
-          if (
-            !freshBoard ||
-            freshBoard.id !== botBoard.id ||
-            !isBotBoardTurn(freshBoard, bot.uid, seatColor)
-          ) {
-            continue;
-          }
-
-          await executeBotTurn(
-            liveMatch.id,
-            freshBoard.id,
-            bot.uid,
-            seatColor,
-            skill,
-            () => boardForBot(bot, boardsRef.current)
-          );
+        const freshBoard = boardForBot(bot, boardsRef.current);
+        if (
+          !freshBoard ||
+          freshBoard.id !== botBoard.id ||
+          !isBotBoardTurn(freshBoard, bot.uid, seatColor)
+        ) {
+          return;
         }
+
+        await executeBotTurn(
+          matchId,
+          freshBoard.id,
+          bot.uid,
+          seatColor,
+          skill,
+          () => boardForBot(bot, boardsRef.current)
+        );
       } catch (err) {
-        console.warn("[bot] move loop failed", err);
+        console.warn(`[bot] ${physicalId} move failed`, err);
       } finally {
-        processingRef.current = false;
+        processingByPhysicalRef.current[physicalId] = false;
       }
     };
 
-    void runBotStep();
-    const interval = setInterval(() => void runBotStep(), POLL_MS);
+    const runBotStep = () => {
+      if (cancelledRef.current) return;
+
+      const liveMatch = matchRef.current;
+      const liveBoards = boardsRef.current;
+      const pending = findBotsToMoveByPhysicalBoard(liveMatch, liveBoards);
+      const waitingIds = PHYSICAL_BOARDS.filter((id) => pending[id]);
+      const peerAlsoWaiting = waitingIds.length > 1;
+
+      for (const physicalId of waitingIds) {
+        const target = pending[physicalId];
+        if (!target) continue;
+        void runBotOnPhysicalBoard(
+          physicalId,
+          target,
+          liveMatch.id,
+          peerAlsoWaiting
+        );
+      }
+    };
+
+    runBotStep();
+    const interval = setInterval(runBotStep, POLL_MS);
 
     return () => {
       cancelledRef.current = true;
       clearInterval(interval);
     };
-  }, [boardsSignature, humanUid, match, match.id, match.status]);
+    // Stable interval — boards are read from boardsRef; restarting on every FEN
+    // change cancelled in-flight moves and starved the human's physical board.
+  }, [humanUid, match.id, match.status, match.hasBots, match.botUids?.length]);
 }
 
 async function submitBotMove(

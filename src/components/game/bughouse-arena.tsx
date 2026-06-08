@@ -107,7 +107,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       .filter((uid) => (seen.has(uid) ? false : (seen.add(uid), true)));
   }, [match.players, myTeam, user]);
 
-  useBotController({ match, boards: displayBoards, humanUid: user?.uid });
+  useBotController({ match, boards, humanUid: user?.uid });
 
   useEffect(() => {
     if (!user || !match.id || !myTeam) return;
