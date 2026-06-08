@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Chessboard, ChessboardProvider } from "react-chessboard";
 import { Chess, type Square } from "chess.js";
 import { motion } from "framer-motion";
@@ -45,12 +45,14 @@ function PlayerLine({
   clock,
   clockRunning,
   isSelf,
+  turnBadge,
 }: {
   player: MatchPlayer | undefined;
   fallback: string;
   clock?: number;
   clockRunning?: boolean;
   isSelf?: boolean;
+  turnBadge?: ReactNode;
 }) {
   return (
     <div className="flex items-center gap-1.5 px-1 min-w-0">
@@ -63,12 +65,13 @@ function PlayerLine({
           className="shrink-0"
         />
       ) : null}
-      <span className="text-sm font-medium truncate">
+      <span className="text-sm font-medium truncate min-w-0">
         {isSelf ? "You" : player?.displayName ?? fallback}
         {player && isBotUid(player.uid) ? (
           <span className="text-muted-foreground font-normal"> · Bot</span>
         ) : null}
       </span>
+      {turnBadge ? <div className="shrink-0">{turnBadge}</div> : null}
       {clock != null ? (
         <span
           className={cn(
@@ -80,6 +83,27 @@ function PlayerLine({
         </span>
       ) : null}
     </div>
+  );
+}
+
+function TurnBadge({
+  label,
+  variant = "yours",
+}: {
+  label: string;
+  variant?: "yours" | "partner" | "opponent";
+}) {
+  const styles =
+    variant === "yours"
+      ? "border-[#4ade80]/50 bg-[#4ade80]/15 text-[#4ade80] animate-pulse"
+      : variant === "partner"
+        ? "border-secondary/50 bg-secondary/15 text-secondary"
+        : "border-muted-foreground/40 bg-muted/30 text-muted-foreground";
+
+  return (
+    <Badge className={cn("text-[10px] uppercase tracking-wide border", styles)}>
+      {label}
+    </Badge>
   );
 }
 
@@ -154,6 +178,39 @@ export function ArenaBoardPanel({
   }, [board.fen, seatColor, showCheckHighlight]);
 
   const isPlayerInCheck = isMyTurn && checkState.inCheck;
+  const opponentCheckState = useMemo(() => {
+    if (board.turn !== opponentSeatColor) {
+      return { inCheck: false, kingSquare: null, attackerSquares: [] as Square[] };
+    }
+    return getCheckHighlightState(board.fen, opponentSeatColor);
+  }, [board.fen, board.turn, opponentSeatColor]);
+  const isOpponentInCheck = opponentCheckState.inCheck;
+  const isOpponentTurn =
+    board.boardStatus === "active" && board.turn === opponentSeatColor;
+
+  const bottomTurnBadge =
+    isMyTurn || isPartnerTurn || isPlayerInCheck ? (
+      <div className="flex items-center gap-1.5">
+        {isPlayerInCheck ? (
+          <Badge className="border border-red-500/60 bg-red-500/20 text-red-400 text-[10px] uppercase tracking-wide animate-pulse">
+            Check
+          </Badge>
+        ) : null}
+        {isMyTurn ? <TurnBadge label="Your turn" variant="yours" /> : null}
+        {isPartnerTurn ? <TurnBadge label="Partner's turn" variant="partner" /> : null}
+      </div>
+    ) : null;
+
+  const opponentTurnBadge = isOpponentTurn ? (
+    <div className="flex items-center gap-1.5">
+      {isOpponentInCheck ? (
+        <Badge className="border border-red-500/60 bg-red-500/20 text-red-400 text-[10px] uppercase tracking-wide animate-pulse">
+          Check
+        </Badge>
+      ) : null}
+      <TurnBadge label="Opponent's turn" variant="opponent" />
+    </div>
+  ) : null;
 
   const selectBoardSquare = (square: Square) => {
     const chess = new Chess(board.fen);
@@ -315,20 +372,6 @@ export function ArenaBoardPanel({
           {boardLabel}
         </span>
         <div className="flex items-center gap-1.5">
-          {isPlayerInCheck ? (
-            <Badge className="border border-red-500/60 bg-red-500/20 text-red-400 text-[10px] uppercase tracking-wide animate-pulse">
-              Check
-            </Badge>
-          ) : null}
-          {isMyTurn ? (
-            <Badge className="border border-[#4ade80]/50 bg-[#4ade80]/15 text-[#4ade80] text-[10px] uppercase tracking-wide animate-pulse">
-              Your turn
-            </Badge>
-          ) : isPartnerTurn ? (
-            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
-              Partner&apos;s turn
-            </Badge>
-          ) : null}
           <Badge variant={board.team === 1 ? "default" : "secondary"}>Team {board.team}</Badge>
         </div>
       </div>
@@ -339,6 +382,7 @@ export function ArenaBoardPanel({
         fallback="Opponent"
         clock={opponentClock}
         clockRunning={opponentClockRunning}
+        turnBadge={opponentTurnBadge}
       />
       <OpponentReserveStrip
         captured={opponentCaptured}
@@ -365,6 +409,7 @@ export function ArenaBoardPanel({
           clock={myClock}
           clockRunning={myClockRunning}
           isSelf={isMine}
+          turnBadge={bottomTurnBadge}
         />
         {isMyTurn ? (
           <p

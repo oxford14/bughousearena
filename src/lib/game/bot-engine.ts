@@ -57,8 +57,13 @@ function pickWeightedMove(
   return `${pick.from}${pick.to}`;
 }
 
-export function chooseBotMove(fen: string, skill: BotSkillProfile): string | null {
+export function chooseBotMove(
+  fen: string,
+  skill: BotSkillProfile,
+  seatColor?: "w" | "b"
+): string | null {
   const chess = new Chess(fen);
+  if (seatColor && chess.turn() !== seatColor) return null;
   const moves = chess.moves({ verbose: true });
   return pickWeightedMove(moves, skill);
 }
@@ -118,7 +123,9 @@ export function isBotBoardTurn(
   if (board.boardStatus && board.boardStatus !== "active") return false;
   const chess = new Chess(board.fen);
   const seatColor =
-    playingColor ?? getSeatColor(board.id as BoardSeatId);
+    playingColor ??
+    board.playerColor ??
+    getSeatColor(board.id as BoardSeatId);
   return chess.turn() === seatColor && !chess.isGameOver();
 }
 
@@ -152,6 +159,7 @@ export function inferBotPromotion(
 /** Fallback when the scored pick fails validation on the server. */
 export function chooseAnyLegalMove(fen: string, seatColor: "w" | "b"): string | null {
   const chess = new Chess(fen);
+  if (chess.turn() !== seatColor) return null;
   const moves = chess.moves({ verbose: true });
   if (moves.length === 0) return null;
   const pick = pickRandom(moves);

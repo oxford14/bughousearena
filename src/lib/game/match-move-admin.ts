@@ -21,6 +21,17 @@ import { matchTimeControlSeconds } from "@/lib/game/time-control";
 import { isBotUid } from "@/lib/game/bots";
 import type { SubmitMoveParams, SubmitMoveResult } from "@/lib/game/match-actions";
 
+function playerOwnsBoardSeat(
+  match: MatchDocument,
+  board: BoardDocument | undefined,
+  boardId: string,
+  playerId: string
+): boolean {
+  if (!board) return false;
+  if (board.playerUid === playerId) return true;
+  return match.players.some((p) => p.uid === playerId && p.boardId === boardId);
+}
+
 function loadSnapshotFromBoards(boards: BoardDocument[]) {
   return snapshotFromBoardDocs(
     boards.map((b) => ({
@@ -162,9 +173,7 @@ export async function submitValidatedMoveAdmin(
         .map((s) => ({ id: s.id, ...s.data() }) as BoardDocument);
 
       const board = boards.find((b) => b.id === boardId);
-      const seatOwner = match.players.find((p) => p.boardId === boardId);
-      const ownerUid = seatOwner?.uid ?? board?.playerUid;
-      if (!board || ownerUid !== params.playerId) {
+      if (!board || !playerOwnsBoardSeat(match, board, boardId, params.playerId)) {
         return { ok: false, error: "Not your board" };
       }
       if (board.boardStatus && board.boardStatus !== "active") {

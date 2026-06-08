@@ -12,7 +12,11 @@ import {
   isBotBoardTurn,
   shouldBotDrop,
 } from "@/lib/game/bot-engine";
-import { getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
+import {
+  resolvePlayingColor,
+  type BoardSeatId,
+  type PieceSymbol,
+} from "@/lib/game/bughouse-engine";
 import { validateDrop, validateMove } from "@/lib/game/move-validator";
 import { submitBotMoveViaApi } from "@/lib/game/bot-move-api";
 import { submitMove } from "@/lib/game/matchmaking";
@@ -42,8 +46,16 @@ function listBots(match: MatchDocument): MatchPlayer[] {
   return match.players.filter((p) => p.isBot || isBotUid(p.uid));
 }
 
-function botSeatColor(bot: MatchPlayer): "w" | "b" {
-  return getSeatColor(bot.boardId as BoardSeatId);
+/** Occupant board doc — playerUid is authoritative after color-setup seat swaps. */
+function boardForBot(bot: MatchPlayer, boards: BoardDocument[]): BoardDocument | undefined {
+  return (
+    boards.find((b) => b.playerUid === bot.uid) ??
+    boards.find((b) => b.id === bot.boardId)
+  );
+}
+
+function botPlayingColor(bot: MatchPlayer, board: BoardDocument): "w" | "b" {
+  return resolvePlayingColor(board.id as BoardSeatId, bot, board);
 }
 
 function findBotBoardToMove(
@@ -51,9 +63,9 @@ function findBotBoardToMove(
   boards: BoardDocument[]
 ): { board: BoardDocument; bot: MatchPlayer } | null {
   for (const bot of listBots(match)) {
-    const board = boards.find((b) => b.id === bot.boardId);
+    const board = boardForBot(bot, boards);
     if (!board) continue;
-    const color = botSeatColor(bot);
+    const color = botPlayingColor(bot, board);
     if (isBotBoardTurn(board, bot.uid, color)) {
       return { board, bot };
     }
@@ -107,23 +119,27 @@ export function useBotController({
 
           const { board: botBoard, bot } = next;
           const skill = getBotSkillForMember(bot);
-          const seatColor = botSeatColor(bot);
+          const seatColor = botPlayingColor(bot, botBoard);
 
           await new Promise((resolve) => setTimeout(resolve, botThinkDelayMs(skill)));
           if (cancelledRef.current) return;
 
-          const freshBoard = boardsRef.current.find((b) => b.id === botBoard.id);
-          if (!freshBoard || !isBotBoardTurn(freshBoard, bot.uid, seatColor)) {
+          const freshBoard = boardForBot(bot, boardsRef.current);
+          if (
+            !freshBoard ||
+            freshBoard.id !== botBoard.id ||
+            !isBotBoardTurn(freshBoard, bot.uid, seatColor)
+          ) {
             continue;
           }
 
           await executeBotTurn(
             liveMatch.id,
-            botBoard.id,
+            freshBoard.id,
             bot.uid,
             seatColor,
             skill,
-            () => boardsRef.current.find((b) => b.id === botBoard.id)
+            () => boardForBot(bot, boardsRef.current)
           );
         }
       } catch (err) {
@@ -199,7 +215,7 @@ async function executeBotTurn(
   }
 
   const candidates: string[] = [];
-  const primary = chooseBotMove(board.fen, skill);
+  const primary = chooseBotMove(board.fen, skill, seatColor);
   if (primary) candidates.push(primary);
 
   const fallback = chooseAnyLegalMove(board.fen, seatColor);

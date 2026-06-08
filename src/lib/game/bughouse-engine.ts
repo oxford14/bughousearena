@@ -158,6 +158,19 @@ export function getSeatColor(seatId: BoardSeatId): PlayerColor {
   return SEAT_CONFIG[seatId].seatColor;
 }
 
+/** Playing color after setup swaps — prefer stored color over fixed seat default. */
+export function resolvePlayingColor(
+  seatId: BoardSeatId,
+  player?: { playerColor?: PlayerColor } | null,
+  board?: { playerColor?: PlayerColor } | null
+): PlayerColor {
+  return (
+    player?.playerColor ??
+    board?.playerColor ??
+    getSeatColor(seatId)
+  );
+}
+
 export function getMirrorSeats(seatId: BoardSeatId): BoardSeatId[] {
   const physical = getPhysicalBoard(seatId);
   return PHYSICAL_BOARD_SEATS[physical];

@@ -201,14 +201,21 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/95 p-4 backdrop-blur-md md:left-[var(--sidebar-width,0)]">
-      <motion.div
-        className="arena-card w-full max-w-4xl rounded-2xl border border-primary/30 p-6 md:p-8"
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-      >
-        <div className="flex flex-col gap-6 lg:flex-row">
-          <div className="flex-1 space-y-6">
+    <div
+      className={cn(
+        "fixed inset-0 z-40 overflow-y-auto overscroll-y-contain",
+        "bg-background/95 backdrop-blur-md",
+        "md:left-[var(--sidebar-width,0)]"
+      )}
+    >
+      <div className="flex min-h-full justify-center p-4 pb-24 md:pb-8 pt-4">
+        <motion.div
+          className="arena-card my-auto w-full max-w-4xl rounded-2xl border border-primary/30 p-6 md:p-8"
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+            <div className="flex min-w-0 flex-1 flex-col gap-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-xs uppercase tracking-[0.25em] text-secondary mb-1">
@@ -271,6 +278,20 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
 
             <SetupSeatPreview team={myTeam} previewColor={previewColor} />
 
+            <div className="rounded-xl border border-primary/25 bg-[#0a0618]/70 p-4 space-y-5">
+              <div>
+                <p className="text-xs uppercase tracking-wider text-secondary mb-1">
+                  While you wait
+                </p>
+                <h2 className="text-sm font-medium">Board &amp; piece style</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Choose your board colors and piece look before the match starts.
+                </p>
+              </div>
+              <BoardThemeSelector />
+              <PieceSetSelector />
+            </div>
+
             <div className="space-y-2">
               <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
                 <Users className="h-3.5 w-3.5" />
@@ -287,13 +308,8 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
             </div>
           </div>
 
-          <div className="flex w-full lg:w-72 flex-col gap-4">
-            <div className="rounded-xl border border-primary/25 bg-[#0a0618]/70 p-3 flex flex-wrap gap-2">
-              <BoardThemeSelector compact />
-              <PieceSetSelector compact />
-            </div>
-
-            <div className="flex flex-1 flex-col rounded-xl border border-primary/25 bg-[#0a0618]/70">
+          <div className="flex w-full shrink-0 flex-col gap-4 lg:w-72">
+            <div className="flex flex-col rounded-xl border border-primary/25 bg-[#0a0618]/70">
               <div className="flex items-center gap-2 border-b border-primary/20 px-3 py-2.5 text-sm font-medium">
                 <MessageCircle className="h-4 w-4 text-secondary" />
                 Team chat
@@ -342,7 +358,8 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
             </div>
           </div>
         </div>
-      </motion.div>
+        </motion.div>
+      </div>
     </div>
   );
 }
