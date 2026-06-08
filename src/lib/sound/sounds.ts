@@ -11,7 +11,8 @@ export type SoundId =
   | "matchFound"
   | "matchStart"
   | "queuePulse"
-  | "loaderComplete";
+  | "loaderComplete"
+  | "chatMessage";
 
 export interface SoundDefinition {
   src: string;
@@ -19,7 +20,7 @@ export interface SoundDefinition {
 }
 
 /** Bump when regenerating WAV files so clients bypass cached silent assets. */
-export const SOUND_ASSET_VERSION = "4";
+export const SOUND_ASSET_VERSION = "5";
 
 function sfx(path: string) {
   return `${path}?v=${SOUND_ASSET_VERSION}`;
@@ -39,6 +40,7 @@ export const SOUND_DEFINITIONS: Record<SoundId, SoundDefinition> = {
   matchStart: { src: sfx("/sounds/match-start.wav"), volume: 0.6 },
   queuePulse: { src: sfx("/sounds/queue-pulse.wav"), volume: 0.25 },
   loaderComplete: { src: sfx("/sounds/loader-complete.wav"), volume: 0.55 },
+  chatMessage: { src: sfx("/sounds/chat-message.wav"), volume: 0.42 },
 };
 
 export const SOUND_ASSETS = Object.values(SOUND_DEFINITIONS).map((d) => d.src);

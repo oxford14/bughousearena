@@ -8,7 +8,8 @@
     "start": "next start",
     "test": "node --experimental-strip-types --test src/lib/game/bughouse-engine.test.ts",
     "emulators": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data",
-    "seed": "node scripts/seed-firestore.mjs"
+    "seed": "node scripts/seed-firestore.mjs",
+    "provision:storage": "node scripts/provision-firebase-storage-cli.cjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",

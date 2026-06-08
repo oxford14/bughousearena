@@ -162,6 +162,15 @@ export function getAdminAuth() {
   return admin.auth();
 }
 
+export function getAdminStorageBucket() {
+  initFirebaseAdmin();
+  const bucketName =
+    process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET ??
+    process.env.FIREBASE_STORAGE_BUCKET ??
+    `${getProjectId()}.appspot.com`;
+  return admin.storage().bucket(bucketName);
+}
+
 export function isFirebaseAdminConfigured(): boolean {
   try {
     loadServiceAccountFromEnv();

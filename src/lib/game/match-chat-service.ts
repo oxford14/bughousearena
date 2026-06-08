@@ -19,7 +19,8 @@ export async function sendMatchTeamChat(
   text: string,
   scope: ChatScope = "team",
   templateId?: string,
-  emoteId?: string
+  emoteId?: string,
+  vipLevel?: number
 ): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -33,6 +34,7 @@ export async function sendMatchTeamChat(
     uid,
     displayName,
     text: trimmed.slice(0, 500),
+    ...(typeof vipLevel === "number" && vipLevel > 0 ? { vipLevel } : {}),
     ...(templateId ? { templateId } : {}),
     ...(emoteId ? { emoteId } : {}),
     createdAt: serverTimestamp(),

@@ -27,6 +27,9 @@ import {
   subscribeSetupTeamChat,
 } from "@/lib/game/match-setup-service";
 import { isBotUid } from "@/lib/game/bots";
+import { getVipLevelFromTopUp } from "@/lib/shop/vip-tiers";
+import { VipBadge } from "@/components/arena/vip-badge";
+import { useAuth } from "@/providers/auth-provider";
 import type { MatchDocument, MatchPlayer, PlayerColor } from "@/types/firestore";
 import { cn } from "@/lib/utils";
 
@@ -122,6 +125,8 @@ function TeammateRow({
 }
 
 export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhaseProps) {
+  const { profile } = useAuth();
+  const myVipLevel = getVipLevelFromTopUp(profile?.totalTopUpCentavos);
   const me = match.players.find((p) => p.uid === myUid);
   const myTeam = me?.team ?? 1;
   const teammates = useMemo(
@@ -136,7 +141,7 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
   const [secondsLeft, setSecondsLeft] = useState(MATCH_SETUP_DURATION_SEC);
   const [chatText, setChatText] = useState("");
   const [messages, setMessages] = useState<
-    { id: string; uid: string; displayName: string; text: string }[]
+    { id: string; uid: string; displayName: string; text: string; vipLevel?: number }[]
   >([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -196,7 +201,14 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
 
   const handleSendChat = async () => {
     if (!chatText.trim()) return;
-    await sendSetupTeamChat(match.id, myTeam, myUid, myDisplayName, chatText);
+    await sendSetupTeamChat(
+      match.id,
+      myTeam,
+      myUid,
+      myDisplayName,
+      chatText,
+      myVipLevel
+    );
     setChatText("");
   };
 
@@ -328,8 +340,9 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
                         msg.uid === myUid ? "bg-primary/20 ml-4" : "bg-muted/40 mr-4"
                       )}
                     >
-                      <span className="text-[10px] uppercase tracking-wider text-secondary block mb-0.5">
-                        {msg.uid === myUid ? "You" : msg.displayName}
+                      <span className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider text-secondary mb-0.5">
+                        <span>{msg.uid === myUid ? "You" : msg.displayName}</span>
+                        <VipBadge vipLevel={msg.vipLevel ?? 0} compact />
                       </span>
                       {msg.text}
                     </div>

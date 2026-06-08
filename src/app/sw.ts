@@ -11,6 +11,16 @@ declare global {
 
 declare const self: ServiceWorkerGlobalScope;
 
+/** Only show the offline page for real full-page navigations while offline. */
+function shouldUseOfflineFallback(request: Request): boolean {
+  if (!self.navigator.onLine) {
+    if (request.mode === "navigate") return true;
+    if (request.destination === "document") return true;
+  }
+
+  return false;
+}
+
 const serwist = new Serwist({
   precacheEntries: self.__SW_MANIFEST,
   skipWaiting: true,
@@ -22,7 +32,10 @@ const serwist = new Serwist({
       {
         url: "/offline",
         matcher({ request }) {
-          return request.destination === "document";
+          if (request.headers.get("RSC") === "1") return false;
+          if (request.headers.get("Next-Router-Prefetch") === "1") return false;
+          if (request.url.includes("/_next/")) return false;
+          return shouldUseOfflineFallback(request);
         },
       },
     ],

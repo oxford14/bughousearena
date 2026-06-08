@@ -14,6 +14,8 @@ import {
   sendMatchTeamChat,
   subscribeMatchTeamChat,
 } from "@/lib/game/match-chat-service";
+import { getVipLevelFromTopUp } from "@/lib/shop/vip-tiers";
+import { VipBadge } from "@/components/arena/vip-badge";
 import { useAuth } from "@/providers/auth-provider";
 import type { ChatScope, MatchChatMessage } from "@/types/firestore";
 import { cn } from "@/lib/utils";
@@ -53,6 +55,7 @@ export function MatchTeamChat({
 
   const quickChatTemplates = getAvailableQuickChatTemplates(profile);
   const equippedEmotes = getEquippedEmotes(profile);
+  const myVipLevel = getVipLevelFromTopUp(profile?.totalTopUpCentavos);
 
   useEffect(() => {
     return subscribeMatchTeamChat(matchId, team, setMessages);
@@ -78,7 +81,8 @@ export function MatchTeamChat({
         text,
         scope,
         templateId,
-        emoteId
+        emoteId,
+        myVipLevel
       );
       if (!templateId && !emoteId) setChatText("");
     } catch (error) {
@@ -197,8 +201,9 @@ export function MatchTeamChat({
                   emote && "text-center text-lg"
                 )}
               >
-                <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-secondary mb-0.5">
-                  {msg.uid === myUid ? "You" : msg.displayName}
+                <span className="flex flex-wrap items-center gap-1.5 text-[10px] uppercase tracking-wider text-secondary mb-0.5">
+                  <span>{msg.uid === myUid ? "You" : msg.displayName}</span>
+                  <VipBadge vipLevel={msg.vipLevel ?? 0} compact />
                   {msg.scope === "all" ? (
                     <span className="rounded-sm bg-secondary/20 px-1 text-[9px] text-secondary">
                       All

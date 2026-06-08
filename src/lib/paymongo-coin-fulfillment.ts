@@ -47,9 +47,11 @@ export async function fulfillCoinPurchase(
     const bonusEligible = !usedPackIds.includes(packId);
     const bonusCoins = bonusEligible ? getFirstTopUpBonusCoins(baseCoins) : 0;
     const coinsCredited = baseCoins + bonusCoins;
+    const amountCentavos = (purchase.amountCentavos as number) ?? 0;
 
     tx.update(userRef, {
       arenaCoins: FieldValue.increment(coinsCredited),
+      totalTopUpCentavos: FieldValue.increment(amountCentavos),
       ...(bonusEligible
         ? { firstTopUpBonusUsedPackIds: FieldValue.arrayUnion(packId) }
         : {}),

@@ -17,6 +17,8 @@ export interface UserProfile {
   rankedWins: number;
   rankedLosses: number;
   arenaCoins: number;
+  /** Lifetime real-money top-up total in PHP centavos (VIP basis). */
+  totalTopUpCentavos?: number;
   /** Pack IDs that already received the one-time first top-up bonus. */
   firstTopUpBonusUsedPackIds?: string[];
   ownedItems?: string[];
@@ -140,6 +142,7 @@ export interface MatchSetupChatMessage {
   uid: string;
   displayName: string;
   text: string;
+  vipLevel?: number;
   createdAt: Timestamp;
 }
 
@@ -155,6 +158,7 @@ export interface MatchChatMessage {
   uid: string;
   displayName: string;
   text: string;
+  vipLevel?: number;
   templateId?: string;
   emoteId?: string;
   createdAt: Timestamp;

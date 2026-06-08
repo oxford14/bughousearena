@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { MessageCircle } from "lucide-react";
 import { MatchTeamChat } from "@/components/game/match-team-chat";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useSound } from "@/providers/sound-provider";
 import type { MatchChatMessage } from "@/types/firestore";
 import { cn } from "@/lib/utils";
 
@@ -15,15 +16,25 @@ interface MatchTeamChatDockProps {
   disabled?: boolean;
 }
 
+function countUnreadFromOthers(
+  messages: MatchChatMessage[],
+  lastReadIndex: number,
+  myUid: string
+): number {
+  return messages.filter((m, i) => i >= lastReadIndex && m.uid !== myUid).length;
+}
+
 /** Desktop: sidebar chat. Mobile: sticky floating chat widget (support-box style). */
 export function MatchTeamChatDock(props: MatchTeamChatDockProps) {
   const { myUid } = props;
   const isMobile = useIsMobile();
+  const { play } = useSound();
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<MatchChatMessage[]>([]);
-  const readCountRef = useRef(0);
-  const initializedReadRef = useRef(false);
+  const [lastReadIndex, setLastReadIndex] = useState(0);
+  const knownMessageIdsRef = useRef<Set<string>>(new Set());
+  const skipSoundRef = useRef(true);
 
   useEffect(() => setMounted(true), []);
 
@@ -31,26 +42,51 @@ export function MatchTeamChatDock(props: MatchTeamChatDockProps) {
     setMessages(next);
   }, []);
 
+  const unreadCount = open
+    ? 0
+    : countUnreadFromOthers(messages, lastReadIndex, myUid);
+
   useEffect(() => {
-    if (!initializedReadRef.current) {
-      readCountRef.current = messages.length;
-      initializedReadRef.current = true;
+    if (!isMobile) return;
+
+    const currentIds = new Set(messages.map((m) => m.id));
+
+    if (skipSoundRef.current) {
+      skipSoundRef.current = false;
+      knownMessageIdsRef.current = currentIds;
+      return;
     }
-  }, [messages]);
+
+    if (open) {
+      knownMessageIdsRef.current = currentIds;
+      return;
+    }
+
+    const newFromOthers = messages.some(
+      (m) => m.uid !== myUid && !knownMessageIdsRef.current.has(m.id)
+    );
+    if (newFromOthers) {
+      play("chatMessage");
+    }
+
+    knownMessageIdsRef.current = currentIds;
+  }, [messages, open, myUid, isMobile, play]);
+
+  useEffect(() => {
+    if (open) {
+      setLastReadIndex(messages.length);
+    }
+  }, [open, messages.length]);
 
   const openChat = () => {
-    readCountRef.current = messages.length;
+    setLastReadIndex(messages.length);
     setOpen(true);
   };
 
   const closeChat = () => {
-    readCountRef.current = messages.length;
+    setLastReadIndex(messages.length);
     setOpen(false);
   };
-
-  const unreadFromOthers = open
-    ? 0
-    : messages.filter((m, i) => i >= readCountRef.current && m.uid !== myUid).length;
 
   const chatPanel = (
     <MatchTeamChat
@@ -85,7 +121,11 @@ export function MatchTeamChatDock(props: MatchTeamChatDockProps) {
         <button
           type="button"
           onClick={openChat}
-          aria-label="Open match chat"
+          aria-label={
+            unreadCount > 0
+              ? `Open match chat, ${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`
+              : "Open match chat"
+          }
           aria-expanded={false}
           className={cn(
             "fixed z-[60] flex h-14 w-14 cursor-pointer items-center justify-center rounded-full",
@@ -95,12 +135,12 @@ export function MatchTeamChatDock(props: MatchTeamChatDockProps) {
           )}
         >
           <MessageCircle className="h-6 w-6" />
-          {unreadFromOthers > 0 ? (
+          {unreadCount > 0 ? (
             <span
-              className="absolute -right-0.5 -top-0.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold text-accent-foreground"
+              className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-[#0a0618] bg-accent px-1 text-[10px] font-bold leading-none text-accent-foreground shadow-md"
               aria-hidden
             >
-              {unreadFromOthers > 9 ? "9+" : unreadFromOthers}
+              {unreadCount > 99 ? "99+" : unreadCount}
             </span>
           ) : null}
         </button>

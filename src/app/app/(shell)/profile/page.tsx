@@ -5,8 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { AvatarFrameWrapper } from "@/components/arena/avatar-frame";
+import { ProfilePhotoUpload } from "@/components/arena/profile-photo-upload";
 import { ArenaShopDialog } from "@/components/arena/shop/arena-shop-dialog";
 import { PieceSetSelector } from "@/components/arena/piece-set-selector";
 import { Badge } from "@/components/ui/badge";
@@ -90,14 +89,13 @@ export default function ProfilePage() {
 
       <Card className="arena-card border-primary/20">
         <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <AvatarFrameWrapper frameId={profile?.equippedAvatarFrame} className="rounded-full">
-              <Avatar className="h-16 w-16">
-                <AvatarImage src={profile?.photoURL ?? user?.photoURL ?? undefined} />
-                <AvatarFallback>{profile?.displayName?.[0] ?? "P"}</AvatarFallback>
-              </Avatar>
-            </AvatarFrameWrapper>
-            <div>
+          <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+            <ProfilePhotoUpload
+              displayName={profile?.displayName ?? "Player"}
+              photoURL={profile?.photoURL ?? user?.photoURL}
+              frameId={profile?.equippedAvatarFrame}
+            />
+            <div className="text-center sm:text-left">
               <h2 className="font-heading text-xl">{profile?.displayName}</h2>
               <div className="flex items-center gap-2 mt-1">
                 <Image src={getRankAssetPath(tier)} alt="" width={20} height={20} />

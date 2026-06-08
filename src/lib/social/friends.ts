@@ -166,6 +166,80 @@ export async function findUserByDisplayName(
   return { uid: d.id, ...d.data() } as UserProfile;
 }
 
+export interface UserSearchResult {
+  uid: string;
+  displayName: string;
+  photoURL: string | null;
+  rating: number;
+  onlineStatus: UserProfile["onlineStatus"];
+}
+
+const MIN_SEARCH_LENGTH = 2;
+const DEFAULT_SEARCH_LIMIT = 8;
+
+function displayNamePrefixEnd(prefix: string): string {
+  return `${prefix}\uf8ff`;
+}
+
+function searchTermVariants(term: string): string[] {
+  const trimmed = term.trim();
+  if (!trimmed) return [];
+  const lower = trimmed.toLowerCase();
+  const variants = new Set([trimmed, lower]);
+  if (lower.length > 0) {
+    variants.add(lower.charAt(0).toUpperCase() + lower.slice(1));
+  }
+  variants.add(trimmed.toUpperCase());
+  return [...variants];
+}
+
+/** Prefix search on display name — review results before sending a request. */
+export async function searchUsersByDisplayName(
+  term: string,
+  options?: { excludeUid?: string; limit?: number }
+): Promise<UserSearchResult[]> {
+  const trimmed = term.trim();
+  if (trimmed.length < MIN_SEARCH_LENGTH) return [];
+
+  const limit = options?.limit ?? DEFAULT_SEARCH_LIMIT;
+  const needle = trimmed.toLowerCase();
+  const seen = new Set<string>();
+  const results: UserSearchResult[] = [];
+
+  for (const prefix of searchTermVariants(trimmed)) {
+    if (results.length >= limit) break;
+
+    const snap = await getDocs(
+      query(
+        collection(getFirebaseDb(), "users"),
+        where("displayName", ">=", prefix),
+        where("displayName", "<=", displayNamePrefixEnd(prefix))
+      )
+    );
+
+    for (const d of snap.docs) {
+      if (seen.has(d.id)) continue;
+      if (options?.excludeUid && d.id === options.excludeUid) continue;
+
+      const data = d.data() as UserProfile;
+      if (!data.displayName.toLowerCase().includes(needle)) continue;
+
+      seen.add(d.id);
+      results.push({
+        uid: d.id,
+        displayName: data.displayName,
+        photoURL: data.photoURL,
+        rating: data.rating ?? 1200,
+        onlineStatus: data.onlineStatus ?? "offline",
+      });
+
+      if (results.length >= limit) break;
+    }
+  }
+
+  return results.sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
 export async function removeFriend(uid: string, friendId: string): Promise<void> {
   await deleteDoc(doc(getFirebaseDb(), "users", uid, "friends", friendId));
   await deleteDoc(doc(getFirebaseDb(), "users", friendId, "friends", uid));

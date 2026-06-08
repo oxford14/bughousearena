@@ -48,7 +48,8 @@ export async function sendSetupTeamChat(
   team: 1 | 2,
   uid: string,
   displayName: string,
-  text: string
+  text: string,
+  vipLevel?: number
 ): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -57,6 +58,7 @@ export async function sendSetupTeamChat(
     uid,
     displayName,
     text: trimmed.slice(0, 500),
+    ...(typeof vipLevel === "number" && vipLevel > 0 ? { vipLevel } : {}),
     createdAt: serverTimestamp(),
   });
 }

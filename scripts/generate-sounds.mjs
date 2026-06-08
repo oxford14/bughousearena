@@ -153,6 +153,10 @@ const sounds = {
   ),
   "queue-pulse.wav": sine(440, 0.08, 0.12, 0.008, 0.05),
   "loader-complete.wav": seq(sine(523, 0.1, 0.28), sine(784, 0.2, 0.32)),
+  "chat-message.wav": seq(
+    sine(880, 0.05, 0.22, 0.002, 0.04),
+    sine(1174.66, 0.07, 0.26, 0.002, 0.06)
+  ),
 };
 
 /** 8s seamless retro arena lobby loop. */
