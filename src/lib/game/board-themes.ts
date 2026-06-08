@@ -1,8 +1,17 @@
-export type BoardThemeId = "classic" | "arena" | "forest";
+export type BoardThemeId =
+  | "classic"
+  | "arena"
+  | "forest"
+  | "neon"
+  | "obsidian"
+  | "sakura"
+  | "tournament";
 
 export interface BoardThemeDefinition {
   id: BoardThemeId;
   label: string;
+  /** Free themes need no shop purchase. */
+  premium?: boolean;
   darkSquare: string;
   lightSquare: string;
   dropValid: string;
@@ -12,6 +21,8 @@ export interface BoardThemeDefinition {
   frameGlow: string;
   innerBorder: string;
 }
+
+export const FREE_BOARD_THEME_IDS: BoardThemeId[] = ["classic", "arena", "forest"];
 
 export const BOARD_THEMES: Record<BoardThemeId, BoardThemeDefinition> = {
   classic: {
@@ -49,6 +60,58 @@ export const BOARD_THEMES: Record<BoardThemeId, BoardThemeDefinition> = {
     notation: "rgba(40, 60, 30, 0.55)",
     frameGlow: "0 2px 12px rgba(0, 0, 0, 0.2)",
     innerBorder: "rgba(60, 90, 45, 0.45)",
+  },
+  neon: {
+    id: "neon",
+    label: "Neon Grid",
+    premium: true,
+    darkSquare: "#1a0a2e",
+    lightSquare: "#2d1b69",
+    dropValid: "rgba(244, 63, 94, 0.45)",
+    dropHover: "rgba(244, 63, 94, 0.75)",
+    dropDrag: "rgba(236, 72, 153, 0.55)",
+    notation: "rgba(244, 114, 182, 0.7)",
+    frameGlow: "0 0 32px rgba(236, 72, 153, 0.5), 0 0 12px rgba(124, 58, 237, 0.4)",
+    innerBorder: "rgba(236, 72, 153, 0.45)",
+  },
+  obsidian: {
+    id: "obsidian",
+    label: "Obsidian",
+    premium: true,
+    darkSquare: "#1c1c1e",
+    lightSquare: "#3a3a3c",
+    dropValid: "rgba(251, 191, 36, 0.4)",
+    dropHover: "rgba(251, 191, 36, 0.65)",
+    dropDrag: "rgba(251, 191, 36, 0.5)",
+    notation: "rgba(251, 191, 36, 0.55)",
+    frameGlow: "0 0 20px rgba(251, 191, 36, 0.2)",
+    innerBorder: "rgba(251, 191, 36, 0.35)",
+  },
+  sakura: {
+    id: "sakura",
+    label: "Sakura",
+    premium: true,
+    darkSquare: "#d4a5a5",
+    lightSquare: "#fce4ec",
+    dropValid: "rgba(236, 72, 153, 0.4)",
+    dropHover: "rgba(236, 72, 153, 0.65)",
+    dropDrag: "rgba(244, 114, 182, 0.5)",
+    notation: "rgba(190, 80, 100, 0.55)",
+    frameGlow: "0 2px 16px rgba(244, 114, 182, 0.25)",
+    innerBorder: "rgba(244, 114, 182, 0.35)",
+  },
+  tournament: {
+    id: "tournament",
+    label: "Tournament",
+    premium: true,
+    darkSquare: "#4a5568",
+    lightSquare: "#e2e8f0",
+    dropValid: "rgba(59, 130, 246, 0.45)",
+    dropHover: "rgba(59, 130, 246, 0.7)",
+    dropDrag: "rgba(59, 130, 246, 0.55)",
+    notation: "rgba(30, 41, 59, 0.6)",
+    frameGlow: "0 2px 8px rgba(0, 0, 0, 0.35)",
+    innerBorder: "rgba(59, 130, 246, 0.4)",
   },
 };
 

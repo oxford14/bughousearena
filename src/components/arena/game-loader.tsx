@@ -55,7 +55,7 @@ export function GameLoader() {
 
       if (!cancelled) {
         router.replace(
-          userRef.current ? "/app/lobby" : "/login?next=/app/lobby"
+          userRef.current ? "/app/home" : "/login?next=/app/home"
         );
       }
     }

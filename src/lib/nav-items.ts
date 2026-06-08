@@ -1,5 +1,6 @@
 import {
   Home,
+  Swords,
   Users,
   Castle,
   Trophy,
@@ -17,7 +18,8 @@ export interface AppNavItem {
 }
 
 export const appNavItems: AppNavItem[] = [
-  { href: "/app/lobby", label: "Lobby", shortLabel: "Lobby", icon: Home },
+  { href: "/app/home", label: "Home", shortLabel: "Home", icon: Home },
+  { href: "/app/lobby", label: "Arena", shortLabel: "Arena", icon: Swords },
   { href: "/app/private", label: "Private Room", shortLabel: "Private", icon: DoorOpen },
   { href: "/app/friends", label: "Friends", shortLabel: "Friends", icon: Users },
   { href: "/app/houses", label: "Houses", shortLabel: "Houses", icon: Castle },

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" fill="none">
+  <defs>
+    <linearGradient id="shopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F43F5E"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
+    </linearGradient>
+  </defs>
+  <rect x="24" y="36" width="48" height="36" rx="6" stroke="url(#shopGrad)" stroke-width="2.5" fill="#151530"/>
+  <path d="M32 36 L36 24 H60 L64 36" stroke="#A78BFA" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <circle cx="48" cy="54" r="12" fill="url(#shopGrad)" opacity="0.85"/>
+  <text x="48" y="58" text-anchor="middle" fill="#151530" font-size="14" font-weight="bold" font-family="sans-serif">$</text>
+  <circle cx="36" cy="68" r="4" fill="#F43F5E"/>
+  <circle cx="60" cy="68" r="4" fill="#F43F5E"/>
+</svg>

@@ -9,10 +9,12 @@ import {
   type ReactNode,
 } from "react";
 import type { User } from "firebase/auth";
+import { doc, onSnapshot } from "firebase/firestore";
 import {
   ensureUserProfile,
   subscribeToAuth,
 } from "@/lib/firebase/auth";
+import { getFirebaseDb } from "@/lib/firebase/config";
 import type { UserProfile } from "@/types/firestore";
 
 interface AuthContextValue {
@@ -51,6 +53,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const ref = doc(getFirebaseDb(), "users", user.uid);
+    return onSnapshot(ref, (snap) => {
+      if (!snap.exists()) return;
+      setProfile({ uid: user.uid, ...snap.data() } as UserProfile);
+    });
+  }, [user?.uid]);
 
   const value = useMemo(
     () => ({ user, profile, loading, refreshProfile }),

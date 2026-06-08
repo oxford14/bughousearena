@@ -22,7 +22,7 @@ export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { play } = useSound();
-  const nextPath = searchParams.get("next") ?? "/app/lobby";
+  const nextPath = searchParams.get("next") ?? "/app/home";
   const [loading, setLoading] = useState(false);
   const [checkingRedirect, setCheckingRedirect] = useState(false);
   const [email, setEmail] = useState("");

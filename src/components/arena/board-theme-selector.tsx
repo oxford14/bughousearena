@@ -1,6 +1,7 @@
 "use client";
 
-import { Palette } from "lucide-react";
+import { Palette, Lock } from "lucide-react";
+import { toast } from "sonner";
 import { Label } from "@/components/ui/label";
 import {
   DropdownMenu,
@@ -14,11 +15,13 @@ import { cn } from "@/lib/utils";
 function ThemeSwatch({
   theme,
   selected,
+  locked,
   onSelect,
   size = "md",
 }: {
   theme: BoardThemeDefinition;
   selected: boolean;
+  locked: boolean;
   onSelect: () => void;
   size?: "sm" | "md";
 }) {
@@ -29,14 +32,22 @@ function ThemeSwatch({
       type="button"
       onClick={onSelect}
       aria-pressed={selected}
-      aria-label={`${theme.label} board theme`}
+      aria-label={`${theme.label} board theme${locked ? " (locked)" : ""}`}
       className={cn(
-        "flex flex-col items-center gap-1.5 rounded-lg border-2 p-1.5 transition-all cursor-pointer",
+        "relative flex flex-col items-center gap-1.5 rounded-lg border-2 p-1.5 transition-all cursor-pointer",
         selected
           ? "border-primary bg-primary/10 shadow-[0_0_16px_rgba(124,58,237,0.25)]"
-          : "border-primary/20 bg-muted/20 hover:border-primary/50"
+          : locked
+            ? "border-primary/15 bg-muted/10 opacity-75 hover:border-primary/30"
+            : "border-primary/20 bg-muted/20 hover:border-primary/50"
       )}
     >
+      {locked ? (
+        <Lock
+          className="absolute top-1 right-1 h-3 w-3 text-muted-foreground"
+          aria-hidden
+        />
+      ) : null}
       <div
         className={cn("grid grid-cols-2 grid-rows-2 overflow-hidden rounded", swatchSize)}
         aria-hidden
@@ -56,14 +67,27 @@ function ThemeSwatch({
 function ThemePicker({
   themeId,
   themes,
+  isUnlocked,
   onSelect,
+  onShopRequest,
   size = "md",
 }: {
   themeId: BoardThemeId;
   themes: BoardThemeDefinition[];
+  isUnlocked: (id: BoardThemeId) => boolean;
   onSelect: (id: BoardThemeId) => void;
+  onShopRequest?: () => void;
   size?: "sm" | "md";
 }) {
+  const handleSelect = (id: BoardThemeId) => {
+    if (!isUnlocked(id)) {
+      toast.message("Unlock this board in the Arena Shop.");
+      onShopRequest?.();
+      return;
+    }
+    onSelect(id);
+  };
+
   return (
     <div className={cn("flex flex-wrap gap-3", size === "sm" && "gap-2")}>
       {themes.map((theme) => (
@@ -71,7 +95,8 @@ function ThemePicker({
           key={theme.id}
           theme={theme}
           selected={themeId === theme.id}
-          onSelect={() => onSelect(theme.id)}
+          locked={!isUnlocked(theme.id)}
+          onSelect={() => handleSelect(theme.id)}
           size={size}
         />
       ))}
@@ -79,8 +104,14 @@ function ThemePicker({
   );
 }
 
-export function BoardThemeSelector({ compact = false }: { compact?: boolean }) {
-  const { themeId, themes, setThemeId } = useBoardTheme();
+export function BoardThemeSelector({
+  compact = false,
+  onShopRequest,
+}: {
+  compact?: boolean;
+  onShopRequest?: () => void;
+}) {
+  const { themeId, themes, setThemeId, isUnlocked } = useBoardTheme();
 
   if (compact) {
     return (
@@ -93,7 +124,14 @@ export function BoardThemeSelector({ compact = false }: { compact?: boolean }) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="p-3">
           <p className="mb-2 text-xs font-medium text-muted-foreground">Board theme</p>
-          <ThemePicker themeId={themeId} themes={themes} onSelect={setThemeId} size="sm" />
+          <ThemePicker
+            themeId={themeId}
+            themes={themes}
+            isUnlocked={isUnlocked}
+            onSelect={setThemeId}
+            onShopRequest={onShopRequest}
+            size="sm"
+          />
         </DropdownMenuContent>
       </DropdownMenu>
     );
@@ -104,10 +142,16 @@ export function BoardThemeSelector({ compact = false }: { compact?: boolean }) {
       <div>
         <Label className="text-sm font-medium">Board theme</Label>
         <p className="text-xs text-muted-foreground">
-          Square colors for in-game boards — saved on this device
+          Square colors for in-game boards. Premium themes unlock in the shop.
         </p>
       </div>
-      <ThemePicker themeId={themeId} themes={themes} onSelect={setThemeId} />
+      <ThemePicker
+        themeId={themeId}
+        themes={themes}
+        isUnlocked={isUnlocked}
+        onSelect={setThemeId}
+        onShopRequest={onShopRequest}
+      />
     </div>
   );
 }

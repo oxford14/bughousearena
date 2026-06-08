@@ -83,7 +83,6 @@ export async function applyRankedRatingForUser(
       lastRatingChange: delta,
       rankedWins: increment(won ? 1 : 0),
       rankedLosses: increment(won ? 0 : 1),
-      arenaCoins: increment(won ? 10 : 3),
     });
 
     transaction.set(

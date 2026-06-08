@@ -6,6 +6,7 @@ import { MessageCircle, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
+import { PieceSetSelector } from "@/components/arena/piece-set-selector";
 import { arenaPieces } from "@/components/game/arena-pieces";
 import {
   formatSetupSeatLabel,
@@ -287,8 +288,9 @@ export function MatchSetupPhase({ match, myUid, myDisplayName }: MatchSetupPhase
           </div>
 
           <div className="flex w-full lg:w-72 flex-col gap-4">
-            <div className="rounded-xl border border-primary/25 bg-[#0a0618]/70 p-3">
+            <div className="rounded-xl border border-primary/25 bg-[#0a0618]/70 p-3 flex flex-wrap gap-2">
               <BoardThemeSelector compact />
+              <PieceSetSelector compact />
             </div>
 
             <div className="flex flex-1 flex-col rounded-xl border border-primary/25 bg-[#0a0618]/70">

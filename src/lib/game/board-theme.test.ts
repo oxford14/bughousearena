@@ -15,7 +15,8 @@ describe("board themes", () => {
     assert.equal(isBoardThemeId("classic"), true);
     assert.equal(isBoardThemeId("arena"), true);
     assert.equal(isBoardThemeId("forest"), true);
-    assert.equal(isBoardThemeId("neon"), false);
+    assert.equal(isBoardThemeId("neon"), true);
+    assert.equal(isBoardThemeId("invalid"), false);
   });
 
   it("classic colors differ from arena", () => {

@@ -3,9 +3,10 @@
 import { useMemo } from "react";
 import { Chessboard } from "react-chessboard";
 import { Badge } from "@/components/ui/badge";
-import { getChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getChessboardOptions, STARTING_FEN } from "@/lib/game/arena-board-theme";
 import { getPhysicalBoardResultStatus } from "@/lib/game/match-end";
 import { useBoardTheme } from "@/providers/board-theme-provider";
+import { usePieceSet } from "@/providers/piece-set-provider";
 import {
   getPhysicalBoardLabel,
   getSeatColor,
@@ -62,6 +63,7 @@ export function MatchResultBoard({
   players,
 }: MatchResultBoardProps) {
   const { themeId } = useBoardTheme();
+  const { pieces } = usePieceSet();
   const seatIds = PHYSICAL_BOARD_SEATS[physicalId];
   const whiteSeat = seatIds.find((id) => getSeatColor(id) === "w")!;
   const blackSeat = seatIds.find((id) => getSeatColor(id) === "b")!;
@@ -74,12 +76,13 @@ export function MatchResultBoard({
   const chessboardOptions = useMemo(
     () =>
       getChessboardOptions(themeId, {
-        position: primaryBoard?.fen ?? "start",
+        pieces,
+        position: primaryBoard?.fen ?? STARTING_FEN,
         boardOrientation: "white",
         allowDragging: false,
         allowDragOffBoard: false,
       }),
-    [primaryBoard?.fen, themeId]
+    [primaryBoard?.fen, themeId, pieces]
   );
 
   return (

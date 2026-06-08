@@ -119,6 +119,7 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
     rankedWins: 0,
     rankedLosses: 0,
     arenaCoins: 0,
+    ownedItems: [],
     houseId: null,
     onlineStatus: "online",
     lastOnline: null,

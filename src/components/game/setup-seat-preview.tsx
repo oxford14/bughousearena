@@ -2,7 +2,7 @@
 
 import { useMemo } from "react";
 import { Chessboard } from "react-chessboard";
-import { getChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getChessboardOptions, STARTING_FEN } from "@/lib/game/arena-board-theme";
 import {
   getPhysicalBoardLabelForSeat,
   type BoardSeatId,
@@ -10,6 +10,7 @@ import {
 import { teamSeatForColor } from "@/lib/game/match-setup";
 import type { PlayerColor } from "@/types/firestore";
 import { useBoardTheme } from "@/providers/board-theme-provider";
+import { usePieceSet } from "@/providers/piece-set-provider";
 import { cn } from "@/lib/utils";
 
 interface SetupSeatPreviewProps {
@@ -20,16 +21,18 @@ interface SetupSeatPreviewProps {
 
 export function SetupSeatPreview({ team, previewColor, className }: SetupSeatPreviewProps) {
   const { themeId } = useBoardTheme();
+  const { pieces } = usePieceSet();
 
   const chessboardOptions = useMemo(
     () =>
       getChessboardOptions(themeId, {
-        position: "start",
+        pieces,
+        position: STARTING_FEN,
         boardOrientation: previewColor === "b" ? "black" : "white",
         allowDragging: false,
         showAnimations: false,
       }),
-    [previewColor, themeId]
+    [previewColor, themeId, pieces]
   );
 
   if (!previewColor) {

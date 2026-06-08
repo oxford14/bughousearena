@@ -34,7 +34,8 @@ import { useMatchClocks } from "@/hooks/use-match-clocks";
 import { useOptimisticBoards } from "@/hooks/use-optimistic-boards";
 import { ArenaBoardPanel } from "@/components/game/arena-board-panel";
 import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
-import { MatchTeamChat } from "@/components/game/match-team-chat";
+import { PieceSetSelector } from "@/components/arena/piece-set-selector";
+import { MatchTeamChatDock } from "@/components/game/match-team-chat-dock";
 
 interface BughouseArenaProps {
   match: MatchDocument;
@@ -106,7 +107,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       .filter((uid) => (seen.has(uid) ? false : (seen.add(uid), true)));
   }, [match.players, myTeam, user]);
 
-  useBotController({ match, boards, humanUid: user?.uid });
+  useBotController({ match, boards: displayBoards, humanUid: user?.uid });
 
   useEffect(() => {
     if (!user || !match.id || !myTeam) return;
@@ -267,6 +268,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
         board={board}
         player={player}
         opponentPlayer={opponentPlayer}
+        opponentCaptured={opponentBoard?.captured ?? []}
         isMine={isMine && !frozen}
         isPartner={isPartner}
         boardLabel={frozen ? `${boardLabel} (frozen)` : boardLabel}
@@ -329,6 +331,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
               : null}
           </Badge>
           <BoardThemeSelector compact />
+          <PieceSetSelector compact />
           <Button
             variant="outline"
             size="sm"
@@ -387,7 +390,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
         </div>
 
         {user && myTeam && profile && match.playerUids?.includes(user.uid) ? (
-          <MatchTeamChat
+          <MatchTeamChatDock
             matchId={match.id}
             team={myTeam}
             myUid={user.uid}

@@ -6,9 +6,10 @@ const withSerwist = withSerwistInit({
   swDest: "public/sw.js",
   disable: process.env.NODE_ENV === "development",
   additionalPrecacheEntries: [
-    { url: "/app/loader", revision: "1" },
-    { url: "/app/lobby", revision: "1" },
-    { url: "/offline", revision: "1" },
+    { url: "/app/loader", revision: "2" },
+    { url: "/app/lobby", revision: "2" },
+    { url: "/app/home", revision: "2" },
+    { url: "/offline", revision: "2" },
     { url: "/assets/hero-arena.png", revision: "1" },
     { url: "/assets/loader-bg.png", revision: "1" },
   ],

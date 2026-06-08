@@ -14,6 +14,7 @@ import {
 } from "@/lib/game/bot-engine";
 import { getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
 import { validateDrop, validateMove } from "@/lib/game/move-validator";
+import { submitBotMoveViaApi } from "@/lib/game/bot-move-api";
 import { submitMove } from "@/lib/game/matchmaking";
 
 interface UseBotControllerOptions {
@@ -22,42 +23,37 @@ interface UseBotControllerOptions {
   humanUid: string | undefined;
 }
 
-const POLL_MS = 750;
+const POLL_MS = 500;
 const MAX_SUBMIT_ATTEMPTS = 6;
+const MAX_BOT_STEPS_PER_TICK = 4;
 
-/** Prefer match.players seating — board.playerUid can lag after color-pick swaps. */
-function getSeatOccupant(
-  match: MatchDocument,
-  board: BoardDocument
-): MatchPlayer | undefined {
-  return (
-    match.players.find((p) => p.boardId === board.id) ??
-    match.players.find((p) => p.uid === board.playerUid)
-  );
+function matchHasBots(match: MatchDocument): boolean {
+  if (match.hasBots) return true;
+  if ((match.botUids?.length ?? 0) > 0) return true;
+  return match.players.some((p) => p.isBot || isBotUid(p.uid));
 }
 
-function isBotSeat(
-  match: MatchDocument,
-  board: BoardDocument
-): MatchPlayer | undefined {
-  const occupant = getSeatOccupant(match, board);
-  if (!occupant) return undefined;
-  if (occupant.isBot || isBotUid(occupant.uid)) return occupant;
-  return undefined;
+function isHumanParticipant(match: MatchDocument, humanUid: string): boolean {
+  if (match.playerUids?.includes(humanUid)) return true;
+  return match.players.some((p) => p.uid === humanUid && !p.isBot && !isBotUid(p.uid));
 }
 
-function botPlayingColor(bot: MatchPlayer, boardId: string): "w" | "b" {
-  return bot.playerColor ?? getSeatColor(boardId as BoardSeatId);
+function listBots(match: MatchDocument): MatchPlayer[] {
+  return match.players.filter((p) => p.isBot || isBotUid(p.uid));
+}
+
+function botSeatColor(bot: MatchPlayer): "w" | "b" {
+  return getSeatColor(bot.boardId as BoardSeatId);
 }
 
 function findBotBoardToMove(
   match: MatchDocument,
   boards: BoardDocument[]
 ): { board: BoardDocument; bot: MatchPlayer } | null {
-  for (const board of boards) {
-    const bot = isBotSeat(match, board);
-    if (!bot) continue;
-    const color = botPlayingColor(bot, board.id);
+  for (const bot of listBots(match)) {
+    const board = boards.find((b) => b.id === bot.boardId);
+    if (!board) continue;
+    const color = botSeatColor(bot);
     if (isBotBoardTurn(board, bot.uid, color)) {
       return { board, bot };
     }
@@ -92,49 +88,46 @@ export function useBotController({
 
     if (match.status !== "active") return;
     if (!humanUid) return;
-
-    const botCount =
-      match.botUids?.length ??
-      match.players.filter((p) => p.isBot || isBotUid(p.uid)).length;
-    const hasBots = match.hasBots ?? botCount > 0;
-    if (!hasBots) return;
-    if (!match.playerUids?.includes(humanUid)) return;
+    if (!matchHasBots(match)) return;
+    if (!isHumanParticipant(match, humanUid)) return;
 
     const runBotStep = async () => {
       if (processingRef.current || cancelledRef.current) return;
 
-      const liveMatch = matchRef.current;
-      const liveBoards = boardsRef.current;
-      const next = findBotBoardToMove(liveMatch, liveBoards);
-      if (!next) return;
-
       processingRef.current = true;
-      const { board: botBoard, bot } = next;
-      const skill = getBotSkillForMember(bot);
-      const seatColor = botPlayingColor(bot, botBoard.id);
 
       try {
-        await new Promise((resolve) => setTimeout(resolve, botThinkDelayMs(skill)));
-        if (cancelledRef.current) return;
+        for (let step = 0; step < MAX_BOT_STEPS_PER_TICK; step++) {
+          if (cancelledRef.current) return;
 
-        const freshBoard = boardsRef.current.find((b) => b.id === botBoard.id);
-        if (
-          !freshBoard ||
-          !isBotBoardTurn(freshBoard, bot.uid, seatColor)
-        ) {
-          return;
+          const liveMatch = matchRef.current;
+          const liveBoards = boardsRef.current;
+          const next = findBotBoardToMove(liveMatch, liveBoards);
+          if (!next) break;
+
+          const { board: botBoard, bot } = next;
+          const skill = getBotSkillForMember(bot);
+          const seatColor = botSeatColor(bot);
+
+          await new Promise((resolve) => setTimeout(resolve, botThinkDelayMs(skill)));
+          if (cancelledRef.current) return;
+
+          const freshBoard = boardsRef.current.find((b) => b.id === botBoard.id);
+          if (!freshBoard || !isBotBoardTurn(freshBoard, bot.uid, seatColor)) {
+            continue;
+          }
+
+          await executeBotTurn(
+            liveMatch.id,
+            botBoard.id,
+            bot.uid,
+            seatColor,
+            skill,
+            () => boardsRef.current.find((b) => b.id === botBoard.id)
+          );
         }
-
-        await executeBotTurn(
-          liveMatch.id,
-          botBoard.id,
-          bot.uid,
-          seatColor,
-          skill,
-          () => boardsRef.current.find((b) => b.id === botBoard.id)
-        );
       } catch (err) {
-        console.warn("[bot] move failed", botBoard.id, err);
+        console.warn("[bot] move loop failed", err);
       } finally {
         processingRef.current = false;
       }
@@ -147,14 +140,7 @@ export function useBotController({
       cancelledRef.current = true;
       clearInterval(interval);
     };
-  }, [
-    boardsSignature,
-    humanUid,
-    match.hasBots,
-    match.id,
-    match.playerUids,
-    match.status,
-  ]);
+  }, [boardsSignature, humanUid, match, match.id, match.status]);
 }
 
 async function submitBotMove(
@@ -166,7 +152,12 @@ async function submitBotMove(
   seatColor: "w" | "b"
 ): Promise<void> {
   const promotion = inferBotPromotion(fen, move, seatColor);
-  await submitMove(matchId, boardId, playerId, move, undefined, undefined, promotion);
+  try {
+    await submitBotMoveViaApi(matchId, boardId, playerId, move, promotion);
+  } catch (apiError) {
+    console.warn("[bot] API move failed, trying client submit", apiError);
+    await submitMove(matchId, boardId, playerId, move, undefined, undefined, promotion);
+  }
 }
 
 async function executeBotTurn(
@@ -194,11 +185,13 @@ async function executeBotTurn(
         reserve
       );
       if (validation.valid) {
-        await submitMove(
+        await submitBotMove(
           matchId,
           boardId,
           playerId,
-          `drop:${drop.piece}@${drop.square}`
+          `drop:${drop.piece}@${drop.square}`,
+          board.fen,
+          seatColor
         );
         return;
       }

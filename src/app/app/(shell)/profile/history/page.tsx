@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/providers/auth-provider";
 import {
   formatMatchMode,
@@ -34,7 +38,7 @@ export default function MatchHistoryPage() {
           )}
           {history.map((entry) => (
             <div
-              key={entry.matchId}
+              key={entry.id}
               className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-3 rounded-lg bg-muted/20"
             >
               <div>
@@ -52,6 +56,16 @@ export default function MatchHistoryPage() {
                 <Badge variant={entry.result === "win" ? "default" : "secondary"}>
                   {formatMatchResult(entry.result)}
                 </Badge>
+                <Link
+                  href={`/app/match/${entry.matchId}/replay`}
+                  className={cn(
+                    buttonVariants({ variant: "outline", size: "sm" }),
+                    "cursor-pointer"
+                  )}
+                >
+                  <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                  Replay
+                </Link>
               </div>
             </div>
           ))}

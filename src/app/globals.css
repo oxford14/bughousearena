@@ -252,6 +252,71 @@
     animation: lobby-dots 1.4s steps(4, end) infinite;
   }
 
+  /* Home hub */
+  .home-topup-inline-btn {
+    background: linear-gradient(135deg, #F43F5E, #E11D48);
+    box-shadow: 0 2px 10px rgba(244, 63, 94, 0.35);
+    color: white;
+    white-space: nowrap;
+    transition: box-shadow 0.2s ease;
+  }
+  .home-topup-inline-btn:hover {
+    box-shadow: 0 4px 14px rgba(244, 63, 94, 0.5);
+  }
+  .topup-pack-card {
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  }
+  .topup-pack-card:hover {
+    box-shadow: 0 4px 18px rgba(124, 58, 237, 0.15);
+  }
+  .shop-item-card {
+    min-height: 100%;
+  }
+  .shop-item-preview {
+    background: linear-gradient(180deg, rgba(21, 21, 48, 0.5), rgba(15, 15, 35, 0.3));
+  }
+  .home-hub-card {
+    background: linear-gradient(145deg, rgba(21, 21, 48, 0.95), rgba(15, 15, 35, 0.9));
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(167, 139, 250, 0.1);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease;
+  }
+  .home-hub-card:hover {
+    box-shadow: 0 8px 28px rgba(124, 58, 237, 0.2), inset 0 1px 0 rgba(167, 139, 250, 0.15);
+  }
+  .home-hub-card--default {
+    border-color: rgba(124, 58, 237, 0.3);
+  }
+  .home-hub-card--shop {
+    border-color: rgba(244, 63, 94, 0.35);
+  }
+  .home-hub-card--shop:hover {
+    box-shadow: 0 8px 28px rgba(244, 63, 94, 0.2);
+  }
+  .home-hub-card--events {
+    border-color: rgba(167, 139, 250, 0.25);
+  }
+  .home-events-soon {
+    position: relative;
+  }
+  .home-events-soon::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: rgba(15, 15, 35, 0.25);
+    pointer-events: none;
+  }
+  .home-play-cta {
+    position: relative;
+    overflow: hidden;
+    animation: home-play-pulse 3s ease-in-out infinite;
+  }
+  @keyframes home-play-pulse {
+    0%, 100% { box-shadow: 0 0 32px rgba(244, 63, 94, 0.25); }
+    50% { box-shadow: 0 0 48px rgba(124, 58, 237, 0.35); }
+  }
+
   /* Match found transition */
   .match-found-overlay {
     background: rgba(15, 15, 35, 0.72);
@@ -299,7 +364,8 @@
   .lobby-radar__pulse,
   .lobby-live-badge,
   .match-found-flash,
-  .match-found-ring {
+  .match-found-ring,
+  .home-play-cta {
     animation: none !important;
   }
 }

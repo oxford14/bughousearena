@@ -2,8 +2,7 @@
 
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { Badge } from "@/components/ui/badge";
-import { RankLadderDialog } from "@/components/arena/rank-ladder-dialog";
+import { PlayerStatusBar } from "@/components/arena/home/player-status-bar";
 import type { UserProfile } from "@/types/firestore";
 
 interface LobbyHeaderProps {
@@ -12,8 +11,6 @@ interface LobbyHeaderProps {
 
 export function LobbyHeader({ profile }: LobbyHeaderProps) {
   const displayName = profile?.displayName ?? "Player";
-  const rating = profile?.rating ?? 1200;
-  const coins = profile?.arenaCoins ?? 0;
 
   return (
     <motion.header
@@ -50,31 +47,7 @@ export function LobbyHeader({ profile }: LobbyHeaderProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <motion.div whileHover={{ scale: 1.03 }} transition={{ type: "spring", stiffness: 400, damping: 20 }}>
-            <RankLadderDialog rating={rating} variant="chip" />
-          </motion.div>
-
-          <motion.div
-            className="lobby-stat-chip rounded-lg border border-primary/25 px-3 py-2"
-            whileHover={{ scale: 1.03 }}
-          >
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">ELO</p>
-            <p className="font-heading text-lg leading-none text-primary">{rating}</p>
-          </motion.div>
-
-          <motion.div
-            className="lobby-stat-chip rounded-lg border border-accent/30 px-3 py-2"
-            whileHover={{ scale: 1.03 }}
-          >
-            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Coins</p>
-            <p className="font-heading text-lg leading-none text-accent">{coins}</p>
-          </motion.div>
-
-          <Badge variant="secondary" className="lobby-live-badge animate-pulse border border-primary/40">
-            LIVE
-          </Badge>
-        </div>
+        <PlayerStatusBar profile={profile} className="sm:justify-end" />
       </div>
     </motion.header>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Chessboard, ChessboardProvider } from "react-chessboard";
 import { Chess, type Square } from "chess.js";
 import { motion } from "framer-motion";
@@ -8,21 +8,23 @@ import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import type { BoardDocument } from "@/types/firestore";
 import type { MatchPlayer } from "@/types/firestore";
-import { getValidDropSquares } from "@/lib/game/move-validator";
+import { getValidDropSquares, getValidMoveSquares, getCheckHighlightState } from "@/lib/game/move-validator";
 import { getChessboardOptions } from "@/lib/game/arena-board-theme";
 import { canDropPiece, getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
 import { useBoardTheme } from "@/providers/board-theme-provider";
+import { usePieceSet } from "@/providers/piece-set-provider";
 import { pieceTypeToSymbol } from "@/components/game/arena-pieces";
 import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
 import { isBotUid } from "@/lib/game/bots";
 import { formatClock } from "@/lib/game/clock-manager";
-import { PieceReserve } from "@/components/game/piece-reserve";
+import { PieceReserve, OpponentReserveStrip } from "@/components/game/piece-reserve";
 import { cn } from "@/lib/utils";
 
 interface ArenaBoardPanelProps {
   board: BoardDocument;
   player: MatchPlayer | undefined;
   opponentPlayer?: MatchPlayer | undefined;
+  opponentCaptured?: string[];
   isMine: boolean;
   isPartner: boolean;
   boardLabel: string;
@@ -85,6 +87,7 @@ export function ArenaBoardPanel({
   board,
   player,
   opponentPlayer,
+  opponentCaptured = [],
   isMine,
   isPartner,
   boardLabel,
@@ -99,28 +102,97 @@ export function ArenaBoardPanel({
   onPlaySelect,
 }: ArenaBoardPanelProps) {
   const [hoverSquare, setHoverSquare] = useState<string | null>(null);
+  const [selectedSquare, setSelectedSquare] = useState<Square | null>(null);
   const { themeId } = useBoardTheme();
+  const { pieces } = usePieceSet();
 
   const seatColor = getSeatColor(board.id as BoardSeatId);
   const reserve = board.captured as PieceSymbol[];
+  const opponentSeatColor = seatColor === "w" ? "b" : "w";
+  const isMyTurn =
+    isMine &&
+    board.boardStatus === "active" &&
+    board.turn === seatColor;
+  const isPartnerTurn =
+    isPartner &&
+    board.boardStatus === "active" &&
+    board.turn === seatColor;
+
+  useEffect(() => {
+    setSelectedSquare(null);
+    setHoverSquare(null);
+  }, [board.fen]);
+
+  useEffect(() => {
+    if (!isMyTurn) {
+      setSelectedSquare(null);
+    }
+  }, [isMyTurn]);
+
+  useEffect(() => {
+    if (selectedPiece) {
+      setSelectedSquare(null);
+    }
+  }, [selectedPiece]);
 
   const validDropSquares = useMemo(() => {
     if (!isMine || !selectedPiece) return [];
     return getValidDropSquares(board.fen, selectedPiece, seatColor, reserve);
   }, [board.fen, isMine, reserve, seatColor, selectedPiece]);
 
+  const validMoveSquares = useMemo(() => {
+    if (!isMine || !isMyTurn || !selectedSquare || selectedPiece) return [];
+    return getValidMoveSquares(board.fen, selectedSquare, seatColor);
+  }, [board.fen, isMine, isMyTurn, seatColor, selectedPiece, selectedSquare]);
+
+  const showCheckHighlight = (isMyTurn || isPartnerTurn) && board.boardStatus === "active";
+  const checkState = useMemo(() => {
+    if (!showCheckHighlight) {
+      return { inCheck: false, kingSquare: null, attackerSquares: [] as Square[] };
+    }
+    return getCheckHighlightState(board.fen, seatColor);
+  }, [board.fen, seatColor, showCheckHighlight]);
+
+  const isPlayerInCheck = isMyTurn && checkState.inCheck;
+
+  const selectBoardSquare = (square: Square) => {
+    const chess = new Chess(board.fen);
+    if (chess.turn() !== seatColor) return;
+    const piece = chess.get(square);
+    if (!piece || piece.color !== seatColor) return;
+    onSelectPiece(null);
+    setSelectedSquare((prev) => (prev === square ? null : square));
+    onPlaySelect();
+  };
+
+  const tryMoveFromSelection = (targetSquare: Square): boolean => {
+    if (!selectedSquare) return false;
+    if (!validMoveSquares.includes(targetSquare)) return false;
+    const ok = onMove(selectedSquare, targetSquare);
+    if (ok) {
+      setSelectedSquare(null);
+      setHoverSquare(null);
+    }
+    return ok;
+  };
+
   const boardOrientation = seatColor === "b" ? "black" : "white";
 
   const chessboardOptions = useMemo(
     () =>
       getChessboardOptions(themeId, {
+        pieces,
         position: board.fen,
         boardOrientation,
         allowDragging: isMine,
         allowDragOffBoard: false,
         animationDurationInMs: 0,
         validDropSquares,
+        validMoveSquares,
+        selectedSquare,
         hoverSquare,
+        checkKingSquare: showCheckHighlight ? checkState.kingSquare : null,
+        checkAttackerSquares: showCheckHighlight ? checkState.attackerSquares : [],
         canDragPiece: ({ isSparePiece, piece }) => {
           if (!isMine) return false;
           const chess = new Chess(board.fen);
@@ -131,24 +203,40 @@ export function ArenaBoardPanel({
           }
           return true;
         },
-        onPieceDrag: ({ isSparePiece, piece }) => {
-          if (!isMine || !isSparePiece) return;
-          const symbol = pieceTypeToSymbol(piece.pieceType);
-          if (symbol) onSelectPiece(symbol);
-        },
-        onPieceClick: ({ isSparePiece, piece }) => {
-          if (!isMine || !isSparePiece) return;
-          const symbol = pieceTypeToSymbol(piece.pieceType);
-          if (!symbol) return;
-          if (selectedPiece === symbol) {
-            onSelectPiece(null);
-          } else {
-            onSelectPiece(symbol);
-            onPlaySelect();
+        onPieceDrag: ({ isSparePiece, piece, square }) => {
+          if (!isMine) return;
+          if (isSparePiece) {
+            const symbol = pieceTypeToSymbol(piece.pieceType);
+            if (symbol) onSelectPiece(symbol);
+            return;
+          }
+          onSelectPiece(null);
+          if (square) {
+            setSelectedSquare(square as Square);
           }
         },
+        onPieceClick: ({ isSparePiece, piece, square }) => {
+          if (!isMine || !isMyTurn) return;
+          if (isSparePiece) {
+            const symbol = pieceTypeToSymbol(piece.pieceType);
+            if (!symbol) return;
+            setSelectedSquare(null);
+            if (selectedPiece === symbol) {
+              onSelectPiece(null);
+            } else {
+              onSelectPiece(symbol);
+              onPlaySelect();
+            }
+            return;
+          }
+          if (!square) return;
+          selectBoardSquare(square as Square);
+        },
         onPieceDrop: ({ piece, sourceSquare, targetSquare }) => {
-          if (!targetSquare) return false;
+          if (!targetSquare) {
+            setSelectedSquare(null);
+            return false;
+          }
           if (piece.isSparePiece) {
             const symbol = pieceTypeToSymbol(piece.pieceType);
             if (!symbol) return false;
@@ -156,16 +244,28 @@ export function ArenaBoardPanel({
             if (ok) onSelectPiece(null);
             return ok;
           }
-          return onMove(sourceSquare, targetSquare);
+          const ok = onMove(sourceSquare, targetSquare);
+          if (ok) {
+            setSelectedSquare(null);
+            setHoverSquare(null);
+          }
+          return ok;
         },
-        onSquareClick: ({ square }) => {
-          if (isMine && selectedPiece) {
+        onSquareClick: ({ piece, square }) => {
+          if (!isMine || !isMyTurn) return;
+          if (selectedPiece) {
             const ok = onDropPiece(square as Square);
             if (ok) onSelectPiece(null);
+            return;
+          }
+          if (!selectedSquare) return;
+          if (tryMoveFromSelection(square as Square)) return;
+          if (!piece) {
+            setSelectedSquare(null);
           }
         },
         onMouseOverSquare: ({ square }) => {
-          if (isMine && selectedPiece) {
+          if (isMine && (selectedPiece || selectedSquare)) {
             setHoverSquare(square);
           }
         },
@@ -176,26 +276,37 @@ export function ArenaBoardPanel({
       boardOrientation,
       hoverSquare,
       isMine,
+      isMyTurn,
       onDropPiece,
       onMove,
       onPlaySelect,
       onSelectPiece,
       reserve,
       selectedPiece,
+      selectedSquare,
+      seatColor,
       themeId,
+      pieces,
       validDropSquares,
+      validMoveSquares,
+      checkState.attackerSquares,
+      checkState.kingSquare,
+      showCheckHighlight,
     ]
   );
 
   return (
     <motion.div
-      className={`relative rounded-2xl p-2 md:p-3 arena-card border ${
-        isMine
-          ? "border-primary/50 shadow-[0_0_32px_rgba(124,58,237,0.2)]"
-          : isPartner
-            ? "border-secondary/40"
-            : "border-primary/20"
-      }`}
+      className={cn(
+        "relative rounded-2xl p-2 md:p-3 arena-card border transition-shadow",
+        isMyTurn
+          ? "border-[#4ade80]/60 shadow-[0_0_36px_rgba(74,222,128,0.28)] ring-2 ring-[#4ade80]/35"
+          : isMine
+            ? "border-primary/50 shadow-[0_0_32px_rgba(124,58,237,0.2)]"
+            : isPartner
+              ? "border-secondary/40"
+              : "border-primary/20"
+      )}
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
     >
@@ -203,7 +314,23 @@ export function ArenaBoardPanel({
         <span className="text-[10px] uppercase tracking-wider text-secondary font-semibold">
           {boardLabel}
         </span>
-        <Badge variant={board.team === 1 ? "default" : "secondary"}>Team {board.team}</Badge>
+        <div className="flex items-center gap-1.5">
+          {isPlayerInCheck ? (
+            <Badge className="border border-red-500/60 bg-red-500/20 text-red-400 text-[10px] uppercase tracking-wide animate-pulse">
+              Check
+            </Badge>
+          ) : null}
+          {isMyTurn ? (
+            <Badge className="border border-[#4ade80]/50 bg-[#4ade80]/15 text-[#4ade80] text-[10px] uppercase tracking-wide animate-pulse">
+              Your turn
+            </Badge>
+          ) : isPartnerTurn ? (
+            <Badge variant="secondary" className="text-[10px] uppercase tracking-wide">
+              Partner&apos;s turn
+            </Badge>
+          ) : null}
+          <Badge variant={board.team === 1 ? "default" : "secondary"}>Team {board.team}</Badge>
+        </div>
       </div>
 
       {/* Opponent sits across the board (top of POV). */}
@@ -213,9 +340,21 @@ export function ArenaBoardPanel({
         clock={opponentClock}
         clockRunning={opponentClockRunning}
       />
+      <OpponentReserveStrip
+        captured={opponentCaptured}
+        playerColor={opponentSeatColor}
+        opponentName={opponentPlayer?.displayName}
+      />
 
       <ChessboardProvider options={chessboardOptions}>
-        <div className="relative aspect-square w-full max-w-[min(100%,420px)] mx-auto rounded-lg p-1 my-1.5 bg-[#0a0618]/60">
+        <div
+          className={cn(
+            "relative aspect-square w-full max-w-[min(100%,420px)] mx-auto rounded-lg p-1 my-1.5 bg-[#0a0618]/60",
+            isPlayerInCheck
+              ? "ring-2 ring-red-500/70 ring-offset-2 ring-offset-[#0a0618]"
+              : isMyTurn && "ring-2 ring-[#4ade80]/40 ring-offset-2 ring-offset-[#0a0618]",
+          )}
+        >
           <Chessboard options={chessboardOptions} />
         </div>
 
@@ -227,6 +366,26 @@ export function ArenaBoardPanel({
           clockRunning={myClockRunning}
           isSelf={isMine}
         />
+        {isMyTurn ? (
+          <p
+            className={cn(
+              "mt-1 text-center text-[10px] font-semibold uppercase tracking-[0.18em]",
+              isPlayerInCheck ? "text-red-400 animate-pulse" : "text-[#4ade80]"
+            )}
+          >
+            {isPlayerInCheck
+              ? "You're in check — move your king, block, capture, or drop"
+              : selectedPiece
+                ? "Tap a green square to drop"
+                : selectedSquare
+                  ? "Tap a green square to move"
+                  : "Tap or drag a piece to move"}
+          </p>
+        ) : isPartnerTurn && checkState.inCheck ? (
+          <p className="mt-1 text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-red-400/90">
+            Partner is in check
+          </p>
+        ) : null}
 
         {(isMine || isPartner) && (
           <PieceReserve

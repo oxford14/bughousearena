@@ -18,7 +18,8 @@ export async function sendMatchTeamChat(
   displayName: string,
   text: string,
   scope: ChatScope = "team",
-  templateId?: string
+  templateId?: string,
+  emoteId?: string
 ): Promise<void> {
   const trimmed = text.trim();
   if (!trimmed) return;
@@ -33,6 +34,7 @@ export async function sendMatchTeamChat(
     displayName,
     text: trimmed.slice(0, 500),
     ...(templateId ? { templateId } : {}),
+    ...(emoteId ? { emoteId } : {}),
     createdAt: serverTimestamp(),
   });
 }

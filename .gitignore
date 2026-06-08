@@ -56,7 +56,9 @@ ui-debug.log
 # firebase service account keys (never commit)
 *-firebase-adminsdk-*.json
 serviceAccountKey.json
-service-account*.json
+firebase-service-account.json
+.rentpilot-ref/
 
 # cloud functions build output
 functions/lib/
+functions/.secret.local

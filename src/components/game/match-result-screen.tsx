@@ -4,8 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import Image from "next/image";
-import { Home, Trophy, Skull } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Home, Trophy, Skull, RotateCcw } from "lucide-react";
+import Link from "next/link";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { VictoryConfetti } from "@/components/game/victory-confetti";
@@ -331,7 +332,17 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
             )}
           </div>
 
-          <div className="px-6 pb-6">
+          <div className="px-6 pb-6 space-y-2">
+            <Link
+              href={`/app/match/${match.id}/replay`}
+              className={cn(
+                buttonVariants({ variant: "outline" }),
+                "w-full cursor-pointer h-11 text-base inline-flex items-center justify-center"
+              )}
+            >
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Review match
+            </Link>
             <Button
               className="w-full btn-arena-primary cursor-pointer h-11 text-base"
               onClick={() => void handleReturnLobby()}

@@ -1,7 +1,10 @@
-import { arenaPieces, reservePieceKeyFromColor } from "@/components/game/arena-pieces";
-import { SparePiece } from "react-chessboard";
+"use client";
+
 import { normalizeCaptured, type PieceSymbol } from "@/lib/game/bughouse-rules";
+import { usePieceSet } from "@/providers/piece-set-provider";
+import { reservePieceKeyFromColor } from "@/components/game/arena-pieces";
 import { cn } from "@/lib/utils";
+import { SparePiece } from "react-chessboard";
 
 const RESERVE_ORDER: PieceSymbol[] = ["q", "r", "b", "n", "p"];
 
@@ -33,6 +36,7 @@ export function PieceReserve({
   label,
   onSelect,
 }: PieceReserveProps) {
+  const { pieces } = usePieceSet();
   const counts = normalizeCaptured(captured);
   const hasPieces = captured.length > 0;
 
@@ -45,7 +49,7 @@ export function PieceReserve({
         <div className="flex flex-wrap items-end justify-center gap-2">
           {RESERVE_ORDER.filter((piece) => counts[piece] > 0).map((piece) => {
             const key = reservePieceKeyFromColor(playerColor, piece);
-            const PieceIcon = arenaPieces[key];
+            const PieceIcon = pieces[key];
             const isSelected = selectedPiece === piece;
 
             if (draggable && interactive) {
@@ -108,6 +112,56 @@ export function PieceReserve({
             ? "Pieces your partner captures will appear here."
             : "No pieces in reserve yet."}
         </p>
+      )}
+    </div>
+  );
+}
+
+/** Read-only compact row for the direct opponent's captured pieces. */
+export function OpponentReserveStrip({
+  captured,
+  playerColor,
+  opponentName,
+}: {
+  captured: string[];
+  playerColor: import("@/types/firestore").PlayerColor;
+  opponentName?: string;
+}) {
+  const { pieces } = usePieceSet();
+  const counts = normalizeCaptured(captured);
+  const available = RESERVE_ORDER.filter((piece) => counts[piece] > 0);
+  const label = opponentName ? `${opponentName} reserve` : "Opp reserve";
+
+  return (
+    <div className="mb-1 flex min-h-[22px] items-center gap-2 px-1">
+      <span className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      {available.length === 0 ? (
+        <span className="text-[10px] text-muted-foreground/70">—</span>
+      ) : (
+        <div className="flex flex-wrap items-center gap-1">
+          {available.map((piece) => {
+            const key = reservePieceKeyFromColor(playerColor, piece);
+            const PieceIcon = pieces[key];
+            return (
+              <span
+                key={piece}
+                className="inline-flex items-center gap-0.5 rounded border border-primary/20 bg-[#1a1035]/60 px-1 py-0.5"
+                title={`${PIECE_LABEL[piece]}${counts[piece] > 1 ? ` ×${counts[piece]}` : ""}`}
+              >
+                <span className="h-3.5 w-3.5 shrink-0 opacity-90 [&_svg]:h-full [&_svg]:w-full">
+                  <PieceIcon />
+                </span>
+                {counts[piece] > 1 ? (
+                  <span className="text-[9px] font-semibold tabular-nums text-muted-foreground">
+                    {counts[piece]}
+                  </span>
+                ) : null}
+              </span>
+            );
+          })}
+        </div>
       )}
     </div>
   );

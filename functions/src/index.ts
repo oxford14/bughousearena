@@ -4,6 +4,13 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { setGlobalOptions } from "firebase-functions/v2";
 
+export {
+  createCoinCheckout,
+  getCoinPurchaseStatus,
+  paymongoWebhook,
+} from "./shop";
+export { purchaseShopItem, equipShopItem } from "./shop-inventory";
+
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
 
 function getDb() {
@@ -122,7 +129,6 @@ export const updateRating = onCall(async (request) => {
     rating: newRating,
     rankedWins: FieldValue.increment(score === 1 ? 1 : 0),
     rankedLosses: FieldValue.increment(score === 0 ? 1 : 0),
-    arenaCoins: FieldValue.increment(score === 1 ? 10 : 3),
   });
 
   await getDb()

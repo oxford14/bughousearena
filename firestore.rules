@@ -51,7 +51,9 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isSignedIn();
       allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+             .hasAny(['arenaCoins', 'firstTopUpBonusUsedPackIds', 'ownedItems', 'equippedBoardTheme', 'equippedPieceSet', 'equippedVictoryFx', 'equippedEmoteIds', 'equippedAvatarFrame']);
       allow delete: if false;
 
       match /friends/{friendId} {
@@ -229,6 +231,11 @@ service cloud.firestore {
         request.resource.data.to != request.auth.uid;
       allow delete: if isSignedIn() &&
         resource.data.uid == request.auth.uid;
+    }
+
+    match /coinPurchases/{purchaseId} {
+      allow read: if isSignedIn() && resource.data.uid == request.auth.uid;
+      allow create, update, delete: if false;
     }
   }
 }

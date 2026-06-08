@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
 import { BOT_QUEUE_TIMEOUT_MS } from "@/lib/game/matchmaking";
 import { formatQueueTime } from "@/lib/format-queue-time";
 
@@ -8,9 +9,10 @@ interface QueueRadarProps {
   active: boolean;
   label: string;
   elapsedSec?: number;
+  onCancel?: () => void;
 }
 
-export function QueueRadar({ active, label, elapsedSec = 0 }: QueueRadarProps) {
+export function QueueRadar({ active, label, elapsedSec = 0, onCancel }: QueueRadarProps) {
   const botTimeoutSec = Math.ceil(BOT_QUEUE_TIMEOUT_MS / 1000);
   const botInSec = Math.max(0, botTimeoutSec - elapsedSec);
   const showBotHint = elapsedSec >= Math.max(0, botTimeoutSec - 12);
@@ -27,7 +29,7 @@ export function QueueRadar({ active, label, elapsedSec = 0 }: QueueRadarProps) {
           aria-label={label}
         >
           <div className="absolute inset-0 bg-background/40 backdrop-blur-[2px]" />
-          <div className="relative flex flex-col items-center gap-6">
+          <div className="relative flex flex-col items-center gap-6 pointer-events-auto">
             <div className="lobby-radar__ring relative h-40 w-40 md:h-52 md:w-52">
               <span className="lobby-radar__sweep absolute inset-0 rounded-full border border-primary/30" />
               <span className="lobby-radar__pulse absolute inset-4 rounded-full border border-primary/50" />
@@ -48,6 +50,16 @@ export function QueueRadar({ active, label, elapsedSec = 0 }: QueueRadarProps) {
             >
               {label}
             </motion.p>
+            {onCancel ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onCancel}
+                className="cursor-pointer border-primary/50 bg-background/90 px-8 shadow-lg backdrop-blur-sm hover:bg-background"
+              >
+                Cancel search
+              </Button>
+            ) : null}
             {showBotHint && (
               <motion.p
                 className="text-xs text-muted-foreground text-center px-6 max-w-sm"

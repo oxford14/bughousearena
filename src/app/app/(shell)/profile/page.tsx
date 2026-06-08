@@ -6,6 +6,9 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AvatarFrameWrapper } from "@/components/arena/avatar-frame";
+import { ArenaShopDialog } from "@/components/arena/shop/arena-shop-dialog";
+import { PieceSetSelector } from "@/components/arena/piece-set-selector";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +61,7 @@ export default function ProfilePage() {
   const { user, profile } = useAuth();
   const router = useRouter();
   const [history, setHistory] = useState<MatchHistoryEntry[]>([]);
+  const [shopOpen, setShopOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -87,10 +91,12 @@ export default function ProfilePage() {
       <Card className="arena-card border-primary/20">
         <CardContent className="pt-6">
           <div className="flex items-center gap-4">
-            <Avatar className="h-16 w-16">
-              <AvatarImage src={profile?.photoURL ?? user?.photoURL ?? undefined} />
-              <AvatarFallback>{profile?.displayName?.[0] ?? "P"}</AvatarFallback>
-            </Avatar>
+            <AvatarFrameWrapper frameId={profile?.equippedAvatarFrame} className="rounded-full">
+              <Avatar className="h-16 w-16">
+                <AvatarImage src={profile?.photoURL ?? user?.photoURL ?? undefined} />
+                <AvatarFallback>{profile?.displayName?.[0] ?? "P"}</AvatarFallback>
+              </Avatar>
+            </AvatarFrameWrapper>
             <div>
               <h2 className="font-heading text-xl">{profile?.displayName}</h2>
               <div className="flex items-center gap-2 mt-1">
@@ -115,9 +121,19 @@ export default function ProfilePage() {
       <Card className="arena-card border-primary/20">
         <CardContent className="pt-6 space-y-6">
           <SoundToggle />
-          <BoardThemeSelector />
+          <BoardThemeSelector onShopRequest={() => setShopOpen(true)} />
+          <PieceSetSelector onShopRequest={() => setShopOpen(true)} />
+          <Button type="button" variant="outline" onClick={() => setShopOpen(true)}>
+            Open Arena Shop
+          </Button>
         </CardContent>
       </Card>
+
+      <ArenaShopDialog
+        open={shopOpen}
+        onOpenChange={setShopOpen}
+        profile={profile}
+      />
 
       <Card className="arena-card border-primary/20" id="security">
         <CardHeader>
@@ -143,11 +159,27 @@ export default function ProfilePage() {
             <p className="text-sm text-muted-foreground">No match history yet.</p>
           )}
           {history.slice(0, 5).map((entry) => (
-            <div key={entry.matchId} className="flex justify-between text-sm p-2 rounded bg-muted/20">
-              <span>{formatMatchMode(entry.mode)} vs {entry.opponents.join(", ")}</span>
-              <Badge variant={entry.result === "win" ? "default" : "secondary"}>
-                {formatMatchResult(entry.result)}
-              </Badge>
+            <div
+              key={entry.id}
+              className="flex items-center justify-between gap-2 text-sm p-2 rounded bg-muted/20"
+            >
+              <span className="min-w-0 truncate">
+                {formatMatchMode(entry.mode)} vs {entry.opponents.join(", ")}
+              </span>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant={entry.result === "win" ? "default" : "secondary"}>
+                  {formatMatchResult(entry.result)}
+                </Badge>
+                <Link
+                  href={`/app/match/${entry.matchId}/replay`}
+                  className={cn(
+                    buttonVariants({ variant: "ghost", size: "xs" }),
+                    "cursor-pointer h-7 px-2"
+                  )}
+                >
+                  Replay
+                </Link>
+              </div>
             </div>
           ))}
         </CardContent>

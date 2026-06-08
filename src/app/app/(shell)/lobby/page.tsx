@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { PartyPanel } from "@/components/arena/party-panel";
 import { LobbyScene } from "@/components/arena/lobby/lobby-scene";
@@ -37,8 +38,10 @@ import {
 
 export default function LobbyPage() {
   const { profile, user } = useAuth();
+  const searchParams = useSearchParams();
   const { play } = useSound();
   useLobbyMusic();
+  const cancelToastShown = useRef(false);
   const [party, setParty] = useState<(PartyDocument & { id: string }) | null>(null);
   const [queueId, setQueueId] = useState<string | null>(null);
   const [searching, setSearching] = useState(false);
@@ -80,6 +83,13 @@ export default function LobbyPage() {
     void clearUserQueueEntries(user.uid);
     return subscribeToUserParty(user.uid, setParty);
   }, [user]);
+
+  useEffect(() => {
+    if (searchParams.get("shop") !== "cancelled") return;
+    if (cancelToastShown.current) return;
+    cancelToastShown.current = true;
+    toast.message("Purchase cancelled");
+  }, [searchParams]);
 
   useEffect(() => {
     queueIdRef.current = queueId;
@@ -187,6 +197,7 @@ export default function LobbyPage() {
         active={searching}
         label={queueLabel}
         elapsedSec={queueElapsedSec}
+        onCancel={cancelQueue}
       />
 
       <LobbyScene>

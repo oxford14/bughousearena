@@ -17,6 +17,14 @@ export interface UserProfile {
   rankedWins: number;
   rankedLosses: number;
   arenaCoins: number;
+  /** Pack IDs that already received the one-time first top-up bonus. */
+  firstTopUpBonusUsedPackIds?: string[];
+  ownedItems?: string[];
+  equippedBoardTheme?: string | null;
+  equippedPieceSet?: string | null;
+  equippedVictoryFx?: string | null;
+  equippedEmoteIds?: string[];
+  equippedAvatarFrame?: string | null;
   houseId: string | null;
   onlineStatus: OnlineStatus;
   lastOnline: Timestamp | null;
@@ -24,6 +32,24 @@ export interface UserProfile {
   /** Prevents double-applying ranked ELO for the same match. */
   lastRatedMatchId?: string | null;
   lastRatingChange?: number | null;
+}
+
+export type CoinPurchaseStatus = "pending" | "paid" | "failed" | "expired";
+
+export interface CoinPurchase {
+  id: string;
+  uid: string;
+  packId: string;
+  /** Base pack coins (before bonus). */
+  coins: number;
+  bonusCoins?: number;
+  coinsCredited?: number;
+  amountCentavos: number;
+  status: CoinPurchaseStatus;
+  paymongoCheckoutSessionId?: string | null;
+  referenceNumber: string;
+  createdAt: Timestamp;
+  paidAt?: Timestamp | null;
 }
 
 export interface FriendEntry {
@@ -130,6 +156,7 @@ export interface MatchChatMessage {
   displayName: string;
   text: string;
   templateId?: string;
+  emoteId?: string;
   createdAt: Timestamp;
 }
 
@@ -245,6 +272,8 @@ export interface LeaderboardEntry {
 }
 
 export interface MatchHistoryEntry {
+  /** Firestore document id (unique per history row). */
+  id: string;
   matchId: string;
   mode: MatchMode;
   result: "win" | "loss" | "draw";
