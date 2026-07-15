@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build --webpack",
+    "build": "node scripts/copy-engine.mjs && next build --webpack",
     "start": "next start",
-    "test": "node --experimental-strip-types --test src/lib/game/bughouse-engine.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/game/bughouse-engine.test.ts src/lib/game/crazyhouse-fen.test.ts",
     "emulators": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data",
     "seed": "node scripts/seed-firestore.mjs",
-    "provision:storage": "node scripts/provision-firebase-storage-cli.cjs"
+    "provision:storage": "node scripts/provision-firebase-storage-cli.cjs",
+    "postinstall": "node scripts/copy-engine.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.5.0",
@@ -18,6 +19,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
+    "fairy-stockfish-nnue.wasm": "^1.1.11",
     "firebase": "^12.14.0",
     "firebase-admin": "^13.10.0",
     "framer-motion": "^12.40.0",

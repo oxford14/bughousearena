@@ -6,9 +6,9 @@ import { motion } from "framer-motion";
 import { Castle, Trophy, Users } from "lucide-react";
 import { PlayerStatusBar } from "@/components/arena/home/player-status-bar";
 import { HubActionCard } from "@/components/arena/home/hub-action-card";
+import { DailyBonusCard } from "@/components/arena/rewards/daily-bonus-card";
 import type { UserProfile } from "@/types/firestore";
 import { useSound } from "@/providers/sound-provider";
-import { toast } from "sonner";
 
 interface HomeHubProps {
   profile: UserProfile | null;
@@ -25,11 +25,6 @@ const QUICK_LINKS = [
 export function HomeHub({ profile, onOpenShop, onOpenTopUp }: HomeHubProps) {
   const { play, unlock } = useSound();
   const displayName = profile?.displayName ?? "Player";
-
-  const handleEventsClick = () => {
-    play("uiClick");
-    toast.message("Tournaments are coming soon — compete for Arena Coins.");
-  };
 
   return (
     <div className="mx-auto flex max-w-lg flex-col gap-6 pb-8 md:max-w-xl">
@@ -56,17 +51,25 @@ export function HomeHub({ profile, onOpenShop, onOpenTopUp }: HomeHubProps) {
         animate={{ opacity: 1, scale: 1 }}
         transition={{ delay: 0.1, duration: 0.45 }}
       >
-        <motion.div
-          className="relative mb-4"
-          animate={{ filter: ["drop-shadow(0 0 12px rgba(124,58,237,0.5))", "drop-shadow(0 0 20px rgba(244,63,94,0.6))", "drop-shadow(0 0 12px rgba(124,58,237,0.5))"] }}
-          transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
-        >
+        <motion.div className="relative mb-4">
+          <motion.div
+            className="pointer-events-none absolute inset-0 rounded-full bg-[rgba(124,58,237,0.55)] blur-xl"
+            animate={{ opacity: [0.45, 0.85, 0.45] }}
+            transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
+            aria-hidden
+          />
+          <motion.div
+            className="pointer-events-none absolute inset-0 rounded-full bg-[rgba(244,63,94,0.35)] blur-xl"
+            animate={{ opacity: [0.25, 0.65, 0.25] }}
+            transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut", delay: 0.4 }}
+            aria-hidden
+          />
           <Image
             src="/assets/lobby/arena-emblem.svg"
             alt=""
             width={88}
             height={88}
-            className="h-20 w-20 md:h-24 md:w-24"
+            className="relative z-10 h-20 w-20 md:h-24 md:w-24"
             priority
           />
         </motion.div>
@@ -98,6 +101,14 @@ export function HomeHub({ profile, onOpenShop, onOpenTopUp }: HomeHubProps) {
       </motion.div>
 
       <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.25, duration: 0.4 }}
+      >
+        <DailyBonusCard autoPrompt />
+      </motion.div>
+
+      <motion.div
         className="grid grid-cols-2 gap-3"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -116,8 +127,8 @@ export function HomeHub({ profile, onOpenShop, onOpenTopUp }: HomeHubProps) {
           label="Events"
           iconSrc="/assets/home/btn-events.svg"
           variant="events"
-          badge="Coming Soon"
-          onClick={handleEventsClick}
+          href="/app/tournaments"
+          onClick={() => play("uiNav")}
         />
       </motion.div>
 

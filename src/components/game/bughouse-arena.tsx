@@ -24,15 +24,18 @@ import {
 } from "@/lib/game/bughouse-engine";
 import { validateDrop, validateMove } from "@/lib/game/move-validator";
 import { submitMove, resignMatch } from "@/lib/game/matchmaking";
-import { formatClock } from "@/lib/game/clock-manager";
 import { formatTimeControl, matchTimeControlSeconds } from "@/lib/game/time-control";
 import { VoiceChatManager } from "@/lib/voice/webrtc";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import { useBotController } from "@/hooks/use-bot-controller";
-import { useMatchClocks } from "@/hooks/use-match-clocks";
 import { useOptimisticBoards } from "@/hooks/use-optimistic-boards";
-import { ArenaBoardPanel } from "@/components/game/arena-board-panel";
+import { MatchNowProvider } from "@/components/game/match-now-context";
+import {
+  PhysicalMatchClockBar,
+  useMatchClockForfeit,
+} from "@/components/game/match-clock-display";
+import { MatchBoardSlot } from "@/components/game/match-board-slot";
 import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { PieceSetSelector } from "@/components/arena/piece-set-selector";
 import { MatchTeamChatDock } from "@/components/game/match-team-chat-dock";
@@ -96,8 +99,11 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     return displayBoards.slice(0, 2);
   }, [displayBoards, myPlayer?.boardId, user?.uid]);
 
-  const { physicalClocks, getBoardClocks, getPhysicalBoardLabel, getPhysicalSeatPlayer } =
-    useMatchClocks(match, displayBoards);
+  useMatchClockForfeit(match, displayBoards);
+
+  const handlePlaySelect = useCallback(() => {
+    play("gameSelect");
+  }, [play]);
   const voiceTeammateUids = useMemo(() => {
     if (!user || !myTeam) return [];
     const seen = new Set<string>();
@@ -250,7 +256,6 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       board.id === myPlayer?.boardId || board.playerUid === user?.uid;
     const isPartner = board.id === myBoard?.partnerBoardId;
     const player = match.players.find((p) => p.uid === board.playerUid);
-    // The opponent shares this physical board on the opposite color seat.
     const opponentSeatId = getMirrorSeats(board.id as BoardSeatId).find(
       (s) => s !== board.id
     );
@@ -260,69 +265,33 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       match.players.find((p) => p.uid === opponentBoard?.playerUid);
     const boardLabel = isMine ? "Your board" : isPartner ? "Partner board" : "Board";
     const frozen = board.boardStatus === "stalemate";
-    const clocks = getBoardClocks(board.id);
 
     return (
-      <ArenaBoardPanel
+      <MatchBoardSlot
         key={board.id}
         board={board}
+        match={match}
+        displayBoards={displayBoards}
         player={player}
         opponentPlayer={opponentPlayer}
         opponentCaptured={opponentBoard?.captured ?? []}
         isMine={isMine && !frozen}
         isPartner={isPartner}
         boardLabel={frozen ? `${boardLabel} (frozen)` : boardLabel}
-        myClock={clocks.mine}
-        opponentClock={clocks.opponent}
-        myClockRunning={clocks.mineRunning}
-        opponentClockRunning={clocks.opponentRunning}
         selectedPiece={selectedPiece}
         onSelectPiece={setSelectedPiece}
-        onPlaySelect={() => play("gameSelect")}
-        onMove={(sourceSquare, targetSquare) =>
-          handleMoveSync(board.id, sourceSquare, targetSquare)
-        }
-        onDropPiece={(square, piece) => handleDropSync(board.id, square, piece)}
+        onPlaySelect={handlePlaySelect}
+        onMoveSync={handleMoveSync}
+        onDropSync={handleDropSync}
       />
     );
   });
 
   return (
+    <MatchNowProvider active={match.status === "active"}>
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4 arena-card p-4 rounded-xl border border-primary/20">
-        <div className="flex gap-6 flex-wrap">
-          {(["alpha", "bravo"] as const).map((physicalId) => {
-            const clocks = physicalClocks[physicalId];
-            return (
-              <div key={physicalId}>
-                <p className="text-xs text-muted-foreground mb-1">
-                  {getPhysicalBoardLabel(physicalId)}
-                </p>
-                <div className="flex gap-4 text-sm flex-wrap">
-                  {(["w", "b"] as const).map((color) => {
-                    const player = getPhysicalSeatPlayer(physicalId, color);
-                    const time = color === "w" ? clocks.white : clocks.black;
-                    const running =
-                      color === "w" ? clocks.whiteRunning : clocks.blackRunning;
-                    return (
-                      <p
-                        key={color}
-                        className={`font-heading text-lg tabular-nums ${
-                          running ? "text-primary neon-glow" : ""
-                        }`}
-                      >
-                        <span className="font-medium">
-                          {player?.displayName ?? (color === "w" ? "White" : "Black")}
-                        </span>{" "}
-                        {formatClock(time)}
-                      </p>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        <PhysicalMatchClockBar match={match} boards={displayBoards} />
         <div className="flex gap-2">
           <Badge>
             {match.mode}
@@ -410,5 +379,6 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
         />
       ))}
     </div>
+    </MatchNowProvider>
   );
 }

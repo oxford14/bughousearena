@@ -96,7 +96,10 @@ Team 1: boards A/B (partners). Team 2: boards C/D (partners).
   `npx firebase-tools@latest deploy --only functions`
 - **Firebase Storage** — open [Storage setup](https://console.firebase.google.com/project/bughousearena/storage), click Get Started, then:
   `npx firebase-tools@latest deploy --only storage`
-- Add your production domain to **Authentication → Settings → Authorized domains**
+- Add **bughousearena.com** (and `www` if used) to **Authentication → Settings → Authorized domains**
+- Connect the custom domain in **Firebase Hosting** and point DNS to Firebase
+- Set production env: `NEXT_PUBLIC_APP_URL=https://bughousearena.com`
+- PayMongo webhook: `https://bughousearena.com/api/paymongo/webhook`
 
 ## Local Development
 

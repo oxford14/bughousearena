@@ -7,6 +7,10 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/config";
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
+import { boardsSnapshotKey, matchSnapshotKey } from "@/lib/game/sync-snapshot-keys";
+
+const lastMatchKeys = new Map<string, string>();
+const lastBoardKeys = new Map<string, string>();
 
 export async function waitForMatchDocument(
   matchId: string,
@@ -33,10 +37,15 @@ export function subscribeToMatch(
     doc(getFirebaseDb(), "matches", matchId),
     (snap) => {
       if (!snap.exists()) {
+        lastMatchKeys.delete(matchId);
         onMatch(null);
         return;
       }
-      onMatch({ id: snap.id, ...snap.data() } as MatchDocument);
+      const match = { id: snap.id, ...snap.data() } as MatchDocument;
+      const key = matchSnapshotKey(match);
+      if (lastMatchKeys.get(matchId) === key) return;
+      lastMatchKeys.set(matchId, key);
+      onMatch(match);
     },
     (error) => {
       console.warn("[match] listener error", error.code, error.message);
@@ -54,6 +63,9 @@ export function subscribeToBoards(
       const boards = snap.docs.map(
         (d) => ({ id: d.id, ...d.data() }) as BoardDocument
       );
+      const key = boardsSnapshotKey(boards);
+      if (lastBoardKeys.get(matchId) === key) return;
+      lastBoardKeys.set(matchId, key);
       onBoards(boards);
     }
   );

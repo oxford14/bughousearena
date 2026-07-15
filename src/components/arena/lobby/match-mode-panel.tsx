@@ -7,7 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatQueueTime } from "@/lib/format-queue-time";
 
-export type MatchMode = "casual" | "ranked" | "private";
+export type MatchMode = "casual" | "ranked" | "private" | "stake";
 
 interface MatchModePanelProps {
   mode: MatchMode;
@@ -26,6 +26,9 @@ interface MatchModePanelProps {
   timeControlOptions?: readonly { seconds: number; label: string; shortLabel: string }[];
   selectedTimeControl?: number;
   onTimeControlChange?: (seconds: number) => void;
+  stakeTierOptions?: readonly number[];
+  selectedStakeTier?: number;
+  onStakeTierChange?: (amount: number) => void;
 }
 
 export function MatchModePanel({
@@ -45,6 +48,9 @@ export function MatchModePanel({
   timeControlOptions,
   selectedTimeControl,
   onTimeControlChange,
+  stakeTierOptions,
+  selectedStakeTier,
+  onStakeTierChange,
 }: MatchModePanelProps) {
   return (
     <motion.div
@@ -100,6 +106,39 @@ export function MatchModePanel({
             </div>
           ) : null}
 
+          {stakeTierOptions && stakeTierOptions.length > 0 && !searching ? (
+            <div className="mb-4">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+                Entry stake (winner&apos;s purse)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {stakeTierOptions.map((tier) => {
+                  const active = selectedStakeTier === tier;
+                  return (
+                    <button
+                      key={tier}
+                      type="button"
+                      disabled={!canQueue}
+                      onClick={() => onStakeTierChange?.(tier)}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors cursor-pointer",
+                        active
+                          ? "border-accent bg-accent/20 text-accent"
+                          : "border-primary/25 bg-muted/20 text-muted-foreground hover:border-primary/50 hover:text-foreground",
+                        !canQueue && "opacity-50 cursor-not-allowed"
+                      )}
+                    >
+                      {tier} coins
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[10px] text-muted-foreground mt-2">
+                Winners earn ~90% of the combined stake. Humans only — no bots.
+              </p>
+            </div>
+          ) : null}
+
           {mode === "private" && privateHref ? (
             <Link
               href={privateHref}
@@ -151,12 +190,13 @@ interface MatchModeTabsProps {
 const MODES: { id: MatchMode; label: string; icon: string }[] = [
   { id: "casual", label: "Casual", icon: "/assets/lobby/mode-casual.svg" },
   { id: "ranked", label: "Ranked", icon: "/assets/lobby/mode-ranked.svg" },
+  { id: "stake", label: "Stake", icon: "/assets/lobby/mode-ranked.svg" },
   { id: "private", label: "Private", icon: "/assets/lobby/mode-private.svg" },
 ];
 
 export function MatchModeTabs({ activeMode, onModeChange }: MatchModeTabsProps) {
   return (
-    <div className="lobby-mode-tabs mb-4 grid grid-cols-3 gap-2 rounded-xl border border-primary/20 bg-muted/20 p-1.5">
+    <div className="lobby-mode-tabs mb-4 grid grid-cols-4 gap-2 rounded-xl border border-primary/20 bg-muted/20 p-1.5">
       {MODES.map((m) => {
         const active = activeMode === m.id;
         return (

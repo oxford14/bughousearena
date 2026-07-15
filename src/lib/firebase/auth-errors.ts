@@ -6,7 +6,7 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
   "auth/popup-closed-by-user": "Sign-in was cancelled.",
   "auth/cancelled-popup-request": "Sign-in was cancelled.",
   "auth/unauthorized-domain":
-    "This site URL is not authorized. Open the app at http://localhost:3000 (not your network IP).",
+    "This site URL is not authorized in Firebase. Use https://bughousearena.com or http://localhost:3000 locally.",
   "auth/operation-not-allowed":
     "Google sign-in is not enabled for this Firebase project.",
   "auth/network-request-failed":

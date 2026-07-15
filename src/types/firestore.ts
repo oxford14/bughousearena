@@ -1,6 +1,6 @@
 import type { Timestamp } from "firebase/firestore";
 
-export type MatchMode = "casual" | "ranked" | "private";
+export type MatchMode = "casual" | "ranked" | "private" | "stake";
 export type MatchStatus = "setup" | "active" | "completed" | "abandoned";
 export type MatchEndReason = "checkmate" | "time_forfeit" | "resignation";
 export type PlayerColor = "w" | "b";
@@ -34,6 +34,16 @@ export interface UserProfile {
   /** Prevents double-applying ranked ELO for the same match. */
   lastRatedMatchId?: string | null;
   lastRatingChange?: number | null;
+  /** Daily sign-in streak (1–7). */
+  dailyStreak?: number;
+  /** Manila date key (YYYY-MM-DD) of last daily claim. */
+  lastDailyClaimDateKey?: string;
+  /** Unique referral code for this user. */
+  referralCode?: string;
+  /** UID of the player who referred this user. */
+  referredByUid?: string | null;
+  /** Total completed matches (for redeem eligibility). */
+  completedMatches?: number;
 }
 
 export type CoinPurchaseStatus = "pending" | "paid" | "failed" | "expired";
@@ -114,6 +124,16 @@ export interface MatchDocument {
   timeControl?: number;
   /** Epoch ms when any board first started counting (first move anywhere). */
   clocksStartedAtMs?: number | null;
+  /** Stake amount per player (stake mode only). */
+  stakePerPlayer?: number;
+  /** Linked tournament (tournament matches only). */
+  tournamentId?: string | null;
+  /** Tournament bracket slot id. */
+  tournamentBracketMatchId?: string | null;
+  /** Tournament team id seated as in-game team 1. */
+  tournamentTeam1Id?: string | null;
+  /** Tournament team id seated as in-game team 2. */
+  tournamentTeam2Id?: string | null;
 }
 
 export interface BoardDocument {
@@ -185,6 +205,8 @@ export interface MatchmakingEntry {
   members: MatchmakingMember[];
   /** Casual only — clock budget in seconds (60 blitz, 300 standard). */
   timeControl?: number;
+  /** Stake tier in coins (stake mode only). */
+  stakePerPlayer?: number;
 }
 
 export interface MatchmakingMember {

@@ -35,6 +35,9 @@ import {
   STANDARD_TIME_CONTROL_SEC,
   type CasualTimeControlSec,
 } from "@/lib/game/time-control";
+import { STAKE_TIERS, getStakeWinPayout } from "@/lib/wallet/stake-tiers";
+import { joinStakeQueue, leaveStakeQueue } from "@/lib/wallet/wallet-api";
+import type { MatchMode as FirestoreMatchMode } from "@/types/firestore";
 
 export default function LobbyPage() {
   const { profile, user } = useAuth();
@@ -51,6 +54,7 @@ export default function LobbyPage() {
   const [casualTimeControl, setCasualTimeControl] = useState<CasualTimeControlSec>(
     STANDARD_TIME_CONTROL_SEC
   );
+  const [stakeTier, setStakeTier] = useState<number>(STAKE_TIERS[0]!);
   const matchFoundRef = useRef(false);
   const queueUnsubRef = useRef<(() => void) | null>(null);
   const queueIdRef = useRef<string | null>(null);
@@ -123,8 +127,17 @@ export default function LobbyPage() {
 
   const canQueue = canQueueParty(party, user?.uid ?? "");
 
-  const startQueue = async (mode: "casual" | "ranked") => {
-    if (!profile || !canQueue) return;
+  const startQueue = async (mode: MatchMode) => {
+    if (!profile || !user) return;
+    if (!canQueueParty(party, user.uid)) return;
+
+    if (mode === "stake") {
+      const confirmed = window.confirm(
+        `Stake ${stakeTier} coins to enter. If you lose, your stake is forfeited. Winners receive ~${getStakeWinPayout(stakeTier)} coins each. Continue?`
+      );
+      if (!confirmed) return;
+    }
+
     matchFoundRef.current = false;
     botFailToastRef.current = false;
     play("uiClick");
@@ -133,28 +146,42 @@ export default function LobbyPage() {
     try {
       const id = await joinQueue(
         profile,
-        mode,
+        mode as FirestoreMatchMode,
         party,
-        mode === "casual" ? casualTimeControl : undefined
+        mode === "casual" ? casualTimeControl : undefined,
+        mode === "stake" ? stakeTier : undefined
       );
+
+      if (mode === "stake") {
+        try {
+          await joinStakeQueue(stakeTier, id);
+        } catch (stakeError) {
+          await leaveQueue(id);
+          throw stakeError;
+        }
+      }
+
       setQueueId(id);
       queueUnsubRef.current = subscribeToQueue(
         profile.uid,
-        mode,
+        mode as FirestoreMatchMode,
         id,
         () => {
           onMatchFoundFromQueue();
         },
         () => {
+          if (mode === "stake") return;
           if (botFailToastRef.current) return;
           botFailToastRef.current = true;
           toast.error("Could not start a bot match. Cancel and try again.");
         },
         ({ liveHumans }) => setLiveHumansInQueue(liveHumans)
       );
-    } catch {
+    } catch (error) {
       play("uiError");
-      toast.error("Failed to join queue.");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to join queue."
+      );
       setSearching(false);
     }
   };
@@ -163,6 +190,9 @@ export default function LobbyPage() {
     play("uiTab");
     queueUnsubRef.current?.();
     queueUnsubRef.current = null;
+    if (activeMode === "stake") {
+      await leaveStakeQueue().catch(() => {});
+    }
     if (queueId) {
       await leaveQueue(queueId);
       setQueueId(null);
@@ -258,6 +288,29 @@ export default function LobbyPage() {
                 canQueue={canQueue}
                 disabledReason={leaderHint}
                 onQueue={() => startQueue("ranked")}
+                onCancel={cancelQueue}
+              />
+            )}
+
+            {activeMode === "stake" && (
+              <MatchModePanel
+                mode="stake"
+                title="Stake Match"
+                description="Competitive matches with an entry stake. Win to earn the purse — no bots, humans only."
+                iconSrc="/assets/lobby/mode-ranked.svg"
+                accentClass="lobby-mode-card--ranked"
+                searching={searching}
+                queueLabel={queueLabel}
+                queueElapsedSec={queueElapsedSec}
+                canQueue={canQueue && !party}
+                disabledReason={party ? "Stake matches are solo queue only." : leaderHint}
+                stakeTierOptions={STAKE_TIERS}
+                selectedStakeTier={stakeTier}
+                onStakeTierChange={(amount) => {
+                  play("uiTab");
+                  setStakeTier(amount);
+                }}
+                onQueue={() => startQueue("stake")}
                 onCancel={cancelQueue}
               />
             )}

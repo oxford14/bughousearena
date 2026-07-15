@@ -58,6 +58,12 @@ export interface BotSkillProfile {
   blunderChance: number;
   thinkMinMs: number;
   thinkMaxMs: number;
+  /** Fairy-Stockfish UCI_Elo (500–2850). */
+  uciElo: number;
+  /** Fairy-Stockfish Skill Level (0–20). */
+  skillLevel: number;
+  /** Engine search budget per move (ms). */
+  moveTimeMs: number;
 }
 
 export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
@@ -71,6 +77,9 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
       blunderChance: 0.42,
       thinkMinMs: 350,
       thinkMaxMs: 950,
+      uciElo: 800,
+      skillLevel: 2,
+      moveTimeMs: 60,
     },
     knight: {
       tier: "knight",
@@ -80,6 +89,9 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
       blunderChance: 0.12,
       thinkMinMs: 480,
       thinkMaxMs: 1150,
+      uciElo: 1200,
+      skillLevel: 6,
+      moveTimeMs: 90,
     },
     bishop: {
       tier: "bishop",
@@ -89,6 +101,9 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
       blunderChance: 0.1,
       thinkMinMs: 540,
       thinkMaxMs: 1300,
+      uciElo: 1450,
+      skillLevel: 9,
+      moveTimeMs: 120,
     },
     rook: {
       tier: "rook",
@@ -98,6 +113,9 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
       blunderChance: 0.06,
       thinkMinMs: 620,
       thinkMaxMs: 1500,
+      uciElo: 1700,
+      skillLevel: 12,
+      moveTimeMs: 150,
     },
     queen: {
       tier: "queen",
@@ -107,6 +125,9 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
       blunderChance: 0.03,
       thinkMinMs: 700,
       thinkMaxMs: 1750,
+      uciElo: 2000,
+      skillLevel: 16,
+      moveTimeMs: 200,
     },
     king: {
       tier: "king",
@@ -116,6 +137,9 @@ export function getBotSkillProfile(tier: RankTier | string): BotSkillProfile {
       blunderChance: 0.015,
       thinkMinMs: 800,
       thinkMaxMs: 2100,
+      uciElo: 2300,
+      skillLevel: 20,
+      moveTimeMs: 280,
     },
   };
   return profiles[rank];
@@ -196,6 +220,9 @@ function lerpSkillProfile(
     blunderChance: mix(a.blunderChance, b.blunderChance),
     thinkMinMs: Math.round(mix(a.thinkMinMs, b.thinkMinMs)),
     thinkMaxMs: Math.round(mix(a.thinkMaxMs, b.thinkMaxMs)),
+    uciElo: Math.round(mix(a.uciElo, b.uciElo)),
+    skillLevel: Math.round(mix(a.skillLevel, b.skillLevel)),
+    moveTimeMs: Math.round(mix(a.moveTimeMs, b.moveTimeMs)),
   };
 }
 
@@ -205,33 +232,28 @@ export function getBotDisplayTier(rating: number): RankTier {
 }
 
 /**
- * Actual bot strength — one tier above display (min Knight), capped at King.
+ * Actual bot strength — matches the human's rank tier (exact tier, no bump).
  * Stored on match players as `botSkill`; UI still uses `rankTier` for labels.
  */
 export function getBotPlayTier(rating: number): RankTier {
-  const display = getRankTier(rating);
-  const bumped = bumpRankTier(display, 1);
-  const knightIdx = RANK_TIER_ORDER.indexOf("knight");
-  const bumpedIdx = RANK_TIER_ORDER.indexOf(bumped);
-  return RANK_TIER_ORDER[Math.max(bumpedIdx, knightIdx)]!;
+  return getRankTier(rating);
 }
 
 /** Skill profile scaled to rating within the current rank band. */
 export function getBotSkillForRating(rating: number): BotSkillProfile {
-  const playTier = getBotPlayTier(rating);
-  const displayTier = getRankTier(rating);
-  const floor = TIER_RATING_FLOOR[displayTier];
-  const nextDisplay = bumpRankTier(displayTier, 1);
+  const tier = getRankTier(rating);
+  const floor = TIER_RATING_FLOOR[tier];
+  const nextTier = bumpRankTier(tier, 1);
   const ceiling =
-    nextDisplay === displayTier
-      ? floor + 200
-      : TIER_RATING_FLOOR[nextDisplay];
+    nextTier === tier ? floor + 200 : TIER_RATING_FLOOR[nextTier];
   const span = Math.max(ceiling - floor, 1);
   const t = Math.min(1, Math.max(0, (rating - floor) / span));
-  const nextPlay = bumpRankTier(playTier, 1);
-  return lerpSkillProfile(
-    getBotSkillProfile(playTier),
-    getBotSkillProfile(nextPlay),
+  const profile = lerpSkillProfile(
+    getBotSkillProfile(tier),
+    getBotSkillProfile(nextTier),
     t
   );
+  // UCI_Elo tracks the player's rating within Fairy-Stockfish's supported range.
+  profile.uciElo = Math.max(500, Math.min(2850, Math.round(rating)));
+  return profile;
 }

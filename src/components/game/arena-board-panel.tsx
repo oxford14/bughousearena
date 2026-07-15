@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Chessboard, ChessboardProvider } from "react-chessboard";
 import { Chess, type Square } from "chess.js";
 import { motion } from "framer-motion";
@@ -9,29 +9,28 @@ import { Badge } from "@/components/ui/badge";
 import type { BoardDocument } from "@/types/firestore";
 import type { MatchPlayer } from "@/types/firestore";
 import { getValidDropSquares, getValidMoveSquares, getCheckHighlightState } from "@/lib/game/move-validator";
-import { getChessboardOptions } from "@/lib/game/arena-board-theme";
+import { getChessboardOptions, buildHoverSquareStyles } from "@/lib/game/arena-board-theme";
 import { canDropPiece, getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
 import { useBoardTheme } from "@/providers/board-theme-provider";
 import { usePieceSet } from "@/providers/piece-set-provider";
 import { pieceTypeToSymbol } from "@/components/game/arena-pieces";
 import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
 import { isBotUid } from "@/lib/game/bots";
-import { formatClock } from "@/lib/game/clock-manager";
+import { BoardSeatClock } from "@/components/game/match-clock-display";
 import { PieceReserve, OpponentReserveStrip } from "@/components/game/piece-reserve";
+import type { MatchDocument } from "@/types/firestore";
 import { cn } from "@/lib/utils";
 
 interface ArenaBoardPanelProps {
   board: BoardDocument;
+  match: MatchDocument;
+  displayBoards: BoardDocument[];
   player: MatchPlayer | undefined;
   opponentPlayer?: MatchPlayer | undefined;
   opponentCaptured?: string[];
   isMine: boolean;
   isPartner: boolean;
   boardLabel: string;
-  myClock?: number;
-  opponentClock?: number;
-  myClockRunning?: boolean;
-  opponentClockRunning?: boolean;
   selectedPiece: PieceSymbol | null;
   onSelectPiece: (piece: PieceSymbol | null) => void;
   onMove: (sourceSquare: string, targetSquare: string) => boolean;
@@ -43,14 +42,12 @@ function PlayerLine({
   player,
   fallback,
   clock,
-  clockRunning,
   isSelf,
   turnBadge,
 }: {
   player: MatchPlayer | undefined;
   fallback: string;
-  clock?: number;
-  clockRunning?: boolean;
+  clock?: ReactNode;
   isSelf?: boolean;
   turnBadge?: ReactNode;
 }) {
@@ -72,16 +69,7 @@ function PlayerLine({
         ) : null}
       </span>
       {turnBadge ? <div className="shrink-0">{turnBadge}</div> : null}
-      {clock != null ? (
-        <span
-          className={cn(
-            "ml-auto text-xs tabular-nums shrink-0",
-            clockRunning ? "text-primary font-semibold neon-glow" : "text-muted-foreground"
-          )}
-        >
-          {formatClock(clock)}
-        </span>
-      ) : null}
+      {clock ?? null}
     </div>
   );
 }
@@ -107,18 +95,16 @@ function TurnBadge({
   );
 }
 
-export function ArenaBoardPanel({
+export const ArenaBoardPanel = memo(function ArenaBoardPanel({
   board,
+  match,
+  displayBoards,
   player,
   opponentPlayer,
   opponentCaptured = [],
   isMine,
   isPartner,
   boardLabel,
-  myClock,
-  opponentClock,
-  myClockRunning,
-  opponentClockRunning,
   selectedPiece,
   onSelectPiece,
   onMove,
@@ -235,7 +221,7 @@ export function ArenaBoardPanel({
 
   const boardOrientation = seatColor === "b" ? "black" : "white";
 
-  const chessboardOptions = useMemo(
+  const chessboardOptionsBase = useMemo(
     () =>
       getChessboardOptions(themeId, {
         pieces,
@@ -247,7 +233,7 @@ export function ArenaBoardPanel({
         validDropSquares,
         validMoveSquares,
         selectedSquare,
-        hoverSquare,
+        hoverSquare: null,
         checkKingSquare: showCheckHighlight ? checkState.kingSquare : null,
         checkAttackerSquares: showCheckHighlight ? checkState.attackerSquares : [],
         canDragPiece: ({ isSparePiece, piece }) => {
@@ -331,7 +317,6 @@ export function ArenaBoardPanel({
     [
       board.fen,
       boardOrientation,
-      hoverSquare,
       isMine,
       isMyTurn,
       onDropPiece,
@@ -350,6 +335,27 @@ export function ArenaBoardPanel({
       checkState.kingSquare,
       showCheckHighlight,
     ]
+  );
+
+  const hoverSquareStyles = useMemo(
+    () =>
+      buildHoverSquareStyles(themeId, {
+        hoverSquare,
+        validDropSquares,
+        validMoveSquares,
+      }),
+    [themeId, hoverSquare, validDropSquares, validMoveSquares]
+  );
+
+  const chessboardOptions = useMemo(
+    () => ({
+      ...chessboardOptionsBase,
+      squareStyles: {
+        ...chessboardOptionsBase.squareStyles,
+        ...hoverSquareStyles,
+      },
+    }),
+    [chessboardOptionsBase, hoverSquareStyles]
   );
 
   return (
@@ -380,8 +386,14 @@ export function ArenaBoardPanel({
       <PlayerLine
         player={opponentPlayer}
         fallback="Opponent"
-        clock={opponentClock}
-        clockRunning={opponentClockRunning}
+        clock={
+          <BoardSeatClock
+            boardId={board.id}
+            boards={displayBoards}
+            match={match}
+            side="opponent"
+          />
+        }
         turnBadge={opponentTurnBadge}
       />
       <OpponentReserveStrip
@@ -406,8 +418,14 @@ export function ArenaBoardPanel({
         <PlayerLine
           player={player}
           fallback={isBotUid(board.playerUid) ? "Bot" : "Player"}
-          clock={myClock}
-          clockRunning={myClockRunning}
+          clock={
+            <BoardSeatClock
+              boardId={board.id}
+              boards={displayBoards}
+              match={match}
+              side="mine"
+            />
+          }
           isSelf={isMine}
           turnBadge={bottomTurnBadge}
         />
@@ -455,4 +473,4 @@ export function ArenaBoardPanel({
       </ChessboardProvider>
     </motion.div>
   );
-}
+});

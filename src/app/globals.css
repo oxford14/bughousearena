@@ -154,7 +154,7 @@
     background: linear-gradient(135deg, #F43F5E, #7C3AED);
     color: white;
     border: none;
-    transition: all 200ms ease;
+    transition: transform 200ms ease, box-shadow 200ms ease;
   }
   .btn-arena-primary:hover {
     box-shadow: 0 0 24px rgba(244, 63, 94, 0.4);
@@ -190,6 +190,7 @@
       transparent 60%
     );
     animation: lobby-shimmer 4s ease-in-out infinite;
+    will-change: transform, opacity;
   }
   .lobby-stat-chip {
     background: rgba(26, 26, 53, 0.8);
@@ -236,6 +237,13 @@
     );
     transform: translateX(-100%);
     animation: lobby-shimmer 2.5s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+  .lobby-particle {
+    will-change: transform, opacity;
+  }
+  .lobby-float-piece {
+    will-change: transform;
   }
   .lobby-radar__sweep {
     animation: lobby-radar-sweep 2.4s linear infinite;
@@ -310,11 +318,28 @@
   .home-play-cta {
     position: relative;
     overflow: hidden;
+  }
+  .home-play-cta::before {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: inherit;
+    pointer-events: none;
+    z-index: 0;
+    box-shadow:
+      0 0 32px rgba(244, 63, 94, 0.25),
+      0 0 48px rgba(124, 58, 237, 0.35);
+    opacity: 0.55;
     animation: home-play-pulse 3s ease-in-out infinite;
+    will-change: opacity;
+  }
+  .home-play-cta > * {
+    position: relative;
+    z-index: 1;
   }
   @keyframes home-play-pulse {
-    0%, 100% { box-shadow: 0 0 32px rgba(244, 63, 94, 0.25); }
-    50% { box-shadow: 0 0 48px rgba(124, 58, 237, 0.35); }
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
   }
 
   /* Match found transition */
@@ -365,7 +390,7 @@
   .lobby-live-badge,
   .match-found-flash,
   .match-found-ring,
-  .home-play-cta {
+  .home-play-cta::before {
     animation: none !important;
   }
 }

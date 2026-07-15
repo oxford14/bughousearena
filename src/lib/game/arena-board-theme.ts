@@ -107,6 +107,37 @@ export function buildSquareStyles(
   return styles;
 }
 
+export function buildHoverSquareStyles(
+  themeId: BoardThemeId,
+  options: {
+    hoverSquare?: string | null;
+    validDropSquares?: Square[];
+    validMoveSquares?: Square[];
+  }
+): Record<string, CSSProperties> {
+  const {
+    hoverSquare = null,
+    validDropSquares = [],
+    validMoveSquares = [],
+  } = options;
+  if (!hoverSquare) return {};
+
+  const theme = BOARD_THEMES[themeId] ?? BOARD_THEMES.arena;
+  const styles: Record<string, CSSProperties> = {};
+  const isValidTarget =
+    validDropSquares.includes(hoverSquare as Square) ||
+    validMoveSquares.includes(hoverSquare as Square);
+
+  if (!isValidTarget) return styles;
+
+  styles[hoverSquare] = {
+    background: theme.dropHover,
+    boxShadow: "inset 0 0 0 2px #4ade80",
+  };
+
+  return styles;
+}
+
 export function getChessboardOptions(
   themeId: BoardThemeId,
   overrides: ChessboardOptions & {

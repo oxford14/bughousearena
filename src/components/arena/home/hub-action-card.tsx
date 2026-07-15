@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
 
@@ -8,6 +9,7 @@ interface HubActionCardProps {
   label: string;
   iconSrc: string;
   onClick?: () => void;
+  href?: string;
   variant?: "shop" | "events" | "default";
   badge?: string;
   disabled?: boolean;
@@ -18,6 +20,7 @@ export function HubActionCard({
   label,
   iconSrc,
   onClick,
+  href,
   variant = "default",
   badge,
   disabled,
@@ -51,7 +54,11 @@ export function HubActionCard({
     className
   );
 
-  return (
+  return href ? (
+    <Link href={href} className={cardClass}>
+      {content}
+    </Link>
+  ) : (
     <motion.button
       type="button"
       className={cardClass}

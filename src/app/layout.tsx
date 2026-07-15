@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Chakra_Petch, Russo_One } from "next/font/google";
 import { AppProviders } from "@/providers/app-providers";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-config";
 import "./globals.css";
 
 const russoOne = Russo_One({
@@ -16,6 +17,7 @@ const chakraPetch = Chakra_Petch({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(PRODUCTION_APP_ORIGIN),
   title: "Bughouse Arena — Competitive 4-Player Chess",
   description:
     "Free-to-play competitive Bughouse Chess. Ranked matches, Houses, voice chat, and real-time 4-board gameplay.",
@@ -24,13 +26,6 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: "black-translucent",
     title: "Bughouse Arena",
-  },
-  icons: {
-    icon: [
-      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [{ url: "/icons/icon-192.png" }],
   },
 };
 

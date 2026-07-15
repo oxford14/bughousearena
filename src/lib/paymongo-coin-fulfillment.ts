@@ -1,6 +1,8 @@
 import { FieldValue } from "firebase-admin/firestore";
 import { getFirstTopUpBonusCoins } from "@/lib/shop/coin-packs";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { creditCoins } from "@/lib/wallet/wallet-server";
+import { rewardReferralTopUp } from "@/lib/wallet/referral-server";
 
 export type FulfillPurchaseResult = {
   credited: boolean;
@@ -16,61 +18,73 @@ export async function fulfillCoinPurchase(
   const db = getAdminDb();
   const purchaseRef = db.collection("coinPurchases").doc(purchaseId);
 
-  return db.runTransaction(async (tx) => {
-    const purchaseSnap = await tx.get(purchaseRef);
-    if (!purchaseSnap.exists) {
-      throw new Error("Purchase not found.");
-    }
+  const purchaseSnap = await purchaseRef.get();
+  if (!purchaseSnap.exists) {
+    throw new Error("Purchase not found.");
+  }
 
-    const purchase = purchaseSnap.data()!;
-    const baseCoins = purchase.coins as number;
+  const purchase = purchaseSnap.data()!;
+  const baseCoins = purchase.coins as number;
 
-    if (purchase.status === "paid") {
-      return {
-        credited: false,
-        baseCoins,
-        bonusCoins: (purchase.bonusCoins as number | undefined) ?? 0,
-        coinsCredited:
-          (purchase.coinsCredited as number | undefined) ?? baseCoins,
-        status: "paid",
-      };
-    }
+  if (purchase.status === "paid") {
+    return {
+      credited: false,
+      baseCoins,
+      bonusCoins: (purchase.bonusCoins as number | undefined) ?? 0,
+      coinsCredited:
+        (purchase.coinsCredited as number | undefined) ?? baseCoins,
+      status: "paid",
+    };
+  }
 
-    const uid = purchase.uid as string;
-    const packId = purchase.packId as string;
-    const userRef = db.collection("users").doc(uid);
-    const userSnap = await tx.get(userRef);
+  const uid = purchase.uid as string;
+  const packId = purchase.packId as string;
+  const userRef = db.collection("users").doc(uid);
+  const userSnap = await userRef.get();
 
-    const usedPackIds =
-      (userSnap.data()?.firstTopUpBonusUsedPackIds as string[] | undefined) ??
-      [];
-    const bonusEligible = !usedPackIds.includes(packId);
-    const bonusCoins = bonusEligible ? getFirstTopUpBonusCoins(baseCoins) : 0;
-    const coinsCredited = baseCoins + bonusCoins;
-    const amountCentavos = (purchase.amountCentavos as number) ?? 0;
+  const usedPackIds =
+    (userSnap.data()?.firstTopUpBonusUsedPackIds as string[] | undefined) ??
+    [];
+  const bonusEligible = !usedPackIds.includes(packId);
+  const bonusCoins = bonusEligible ? getFirstTopUpBonusCoins(baseCoins) : 0;
+  const coinsCredited = baseCoins + bonusCoins;
+  const amountCentavos = (purchase.amountCentavos as number) ?? 0;
+  const previousTopUp =
+    (userSnap.data()?.totalTopUpCentavos as number | undefined) ?? 0;
 
-    tx.update(userRef, {
-      arenaCoins: FieldValue.increment(coinsCredited),
+  const creditResult = await creditCoins(db, {
+    uid,
+    amount: coinsCredited,
+    type: "topup",
+    refId: purchaseId,
+    metadata: { packId, bonusCoins },
+  });
+
+  if (creditResult.credited) {
+    await userRef.update({
       totalTopUpCentavos: FieldValue.increment(amountCentavos),
       ...(bonusEligible
         ? { firstTopUpBonusUsedPackIds: FieldValue.arrayUnion(packId) }
         : {}),
     });
-    tx.update(purchaseRef, {
+    await purchaseRef.update({
       status: "paid",
       bonusCoins,
       coinsCredited,
       paidAt: FieldValue.serverTimestamp(),
     });
 
-    return {
-      credited: true,
-      baseCoins,
-      bonusCoins,
-      coinsCredited,
-      status: "paid",
-    };
-  });
+    const newTotal = previousTopUp + amountCentavos;
+    await rewardReferralTopUp(db, uid, newTotal);
+  }
+
+  return {
+    credited: creditResult.credited,
+    baseCoins,
+    bonusCoins,
+    coinsCredited,
+    status: "paid",
+  };
 }
 
 export async function getPurchaseStatusForUser(

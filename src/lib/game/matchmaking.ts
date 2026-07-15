@@ -114,6 +114,7 @@ function normalizeQueueEntry(
     memberUids: (data.memberUids as string[] | undefined) ?? members.map((m) => m.uid),
     members,
     timeControl: (data.timeControl as number | undefined) ?? undefined,
+    stakePerPlayer: (data.stakePerPlayer as number | undefined) ?? undefined,
   };
 }
 
@@ -132,7 +133,8 @@ export async function joinQueue(
   user: UserProfile,
   mode: MatchMode,
   party?: PartyDocument | null,
-  timeControlSec?: number
+  timeControlSec?: number,
+  stakePerPlayer?: number
 ): Promise<string> {
   await clearUserQueueEntries(user.uid);
 
@@ -157,6 +159,7 @@ export async function joinQueue(
     memberUids: members.map((m) => m.uid),
     members,
     timeControl,
+    ...(stakePerPlayer ? { stakePerPlayer } : {}),
   });
   return ref.id;
 }
@@ -244,6 +247,7 @@ export function subscribeToQueue(
   const entryRef = doc(getFirebaseDb(), "matchmaking", queueEntryId);
 
   const attemptBotBackfill = (reason: string) => {
+    if (mode === "stake") return;
     if (settled || creating) return;
     creating = true;
     void tryCreateBotMatch(queueEntryId, mode)
@@ -282,7 +286,10 @@ export function subscribeToQueue(
 
     const entries = snap.docs.map((d) => normalizeQueueEntry(d.id, d.data()));
     const myEntry = entries.find((e) => e.id === queueEntryId);
-    const pool = myEntry ? filterQueueByTimeControl(entries, myEntry) : entries;
+    let pool = myEntry ? filterQueueByTimeControl(entries, myEntry) : entries;
+    if (mode === "stake" && myEntry?.stakePerPlayer != null) {
+      pool = pool.filter((e) => e.stakePerPlayer === myEntry.stakePerPlayer);
+    }
     onQueueStats?.({ liveHumans: countLiveHumansInQueue(pool) });
     const liveHumans = countLiveHumansInQueue(pool);
 
@@ -312,10 +319,11 @@ export function subscribeToQueue(
   });
 
   const botTimer = window.setTimeout(() => {
-    attemptBotBackfill("timer");
+    if (mode !== "stake") attemptBotBackfill("timer");
   }, Math.max(0, BOT_QUEUE_TIMEOUT_MS - (Date.now() - joinedAtMs)));
 
   const botRetry = window.setInterval(() => {
+    if (mode === "stake") return;
     if (settled || Date.now() - joinedAtMs < BOT_QUEUE_TIMEOUT_MS) return;
     attemptBotBackfill("interval");
   }, BOT_BACKFILL_RETRY_MS);
@@ -458,6 +466,7 @@ async function createMatchFromQueue(
         players,
         queueEntryIds: entries.map((e) => e.id),
         timeControlSec: resolveQueueTimeControl(entries[0]!),
+        stakePerPlayer: entries[0]?.stakePerPlayer,
       });
     });
   } catch {
@@ -473,9 +482,10 @@ function persistMatchInTransaction(
     players: MatchPlayer[];
     queueEntryIds: string[];
     timeControlSec: number;
+    stakePerPlayer?: number;
   }
 ): string {
-  const { mode, players, queueEntryIds, timeControlSec } = opts;
+  const { mode, players, queueEntryIds, timeControlSec, stakePerPlayer } = opts;
   const humanUids = players.filter((p) => !p.isBot).map((p) => p.uid);
   const botUids = players.filter((p) => p.isBot).map((p) => p.uid);
 
@@ -495,6 +505,7 @@ function persistMatchInTransaction(
     createdAt: serverTimestamp(),
     startedAt: null,
     completedAt: null,
+    ...(stakePerPlayer ? { stakePerPlayer } : {}),
   });
 
   for (const board of createInitialBoards(players, timeControlSec)) {

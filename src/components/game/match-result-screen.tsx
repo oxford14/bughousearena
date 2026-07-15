@@ -34,6 +34,8 @@ import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
 import { cn } from "@/lib/utils";
+import { getStakeWinPayout } from "@/lib/wallet/stake-tiers";
+import { advanceTournamentMatch } from "@/lib/wallet/wallet-api";
 
 interface MatchResultScreenProps {
   match: MatchDocument;
@@ -94,6 +96,19 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
       .catch(() => setRatingChange(0))
       .finally(() => setRatingReady(true));
   }, [userUid, myTeam, match.id, match.mode, refreshProfile]);
+
+  useEffect(() => {
+    if (!match.tournamentId || !userUid) return;
+    void advanceTournamentMatch(match.id)
+      .then(() => refreshProfile())
+      .catch(() => {});
+  }, [match.id, match.tournamentId, userUid, refreshProfile]);
+
+  useEffect(() => {
+    if (match.stakePerPlayer && userUid) {
+      void refreshProfile();
+    }
+  }, [match.stakePerPlayer, userUid, refreshProfile]);
 
   useEffect(() => {
     if (!userUid || myTeam == null || historySavedRef.current || !ratingReady) return;
@@ -203,6 +218,16 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
                 {reasonTitle}
                 {decisiveBoard ? ` · ${decisiveBoard}` : ""}
               </Badge>
+              {match.stakePerPlayer ? (
+                <Badge variant="outline" className="text-xs border-accent/40 text-accent">
+                  Stake {match.stakePerPlayer} ·{" "}
+                  {isVictory
+                    ? `+${getStakeWinPayout(match.stakePerPlayer)} coins`
+                    : isDefeat
+                      ? "Stake lost"
+                      : "Draw"}
+                </Badge>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-2 mt-3">

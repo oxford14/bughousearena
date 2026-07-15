@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { PRODUCTION_APP_ORIGIN } from "@/lib/app-config";
 import { getCoinPack } from "@/lib/shop/coin-packs";
 import { createPaymongoCheckoutSession } from "@/lib/paymongo";
 import {
@@ -14,6 +15,9 @@ function getAppOrigin(request: Request): string {
   if (origin) return origin;
   if (process.env.NEXT_PUBLIC_APP_URL) {
     return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  }
+  if (process.env.NODE_ENV === "production") {
+    return PRODUCTION_APP_ORIGIN;
   }
   return "http://localhost:3000";
 }

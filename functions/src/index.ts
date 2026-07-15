@@ -10,6 +10,7 @@ export {
   paymongoWebhook,
 } from "./shop";
 export { purchaseShopItem, equipShopItem } from "./shop-inventory";
+export { onMatchCompleted } from "./match-rewards";
 
 setGlobalOptions({ region: "us-central1", maxInstances: 10 });
 

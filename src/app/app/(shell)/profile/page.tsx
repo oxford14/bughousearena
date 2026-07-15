@@ -26,6 +26,7 @@ import { useRouter } from "next/navigation";
 import { SoundToggle } from "@/components/arena/sound-toggle";
 import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { ChangePasswordForm } from "@/components/arena/change-password-form";
+import { InviteEarnSection } from "@/components/arena/referrals/invite-earn-section";
 import type { UserProfile } from "@/types/firestore";
 
 function getRankedStats(
@@ -115,6 +116,8 @@ export default function ProfilePage() {
           <p className="text-xs text-muted-foreground">Arena Coins</p>
         </Card>
       </div>
+
+      <InviteEarnSection />
 
       <Card className="arena-card border-primary/20">
         <CardContent className="pt-6 space-y-6">

@@ -7,6 +7,7 @@ import {
   User,
   DoorOpen,
   BookOpen,
+  Banknote,
   type LucideIcon,
 } from "lucide-react";
 
@@ -20,6 +21,8 @@ export interface AppNavItem {
 export const appNavItems: AppNavItem[] = [
   { href: "/app/home", label: "Home", shortLabel: "Home", icon: Home },
   { href: "/app/lobby", label: "Arena", shortLabel: "Arena", icon: Swords },
+  { href: "/app/tournaments", label: "Tournaments", shortLabel: "Events", icon: Trophy },
+  { href: "/app/redeem", label: "Redeem", shortLabel: "Redeem", icon: Banknote },
   { href: "/app/private", label: "Private Room", shortLabel: "Private", icon: DoorOpen },
   { href: "/app/friends", label: "Friends", shortLabel: "Friends", icon: Users },
   { href: "/app/houses", label: "Houses", shortLabel: "Houses", icon: Castle },

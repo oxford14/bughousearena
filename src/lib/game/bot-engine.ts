@@ -151,9 +151,30 @@ export function inferBotPromotion(
   const to = move.slice(2, 4);
   const piece = board.get(from);
   if (!piece || piece.type !== "p") return undefined;
-  if (seatColor === "w" && to === "8") return "q";
-  if (seatColor === "b" && to === "1") return "q";
+  const rank = to[1];
+  if (seatColor === "w" && rank === "8") return "q";
+  if (seatColor === "b" && rank === "1") return "q";
   return undefined;
+}
+
+/** Cap simulated think time when the bot's team clock is low. */
+export function botThinkDelayWithClock(
+  skill: BotSkillProfile,
+  teamClockSeconds?: number
+): number {
+  let delay =
+    skill.thinkMinMs +
+    Math.floor(Math.random() * (skill.thinkMaxMs - skill.thinkMinMs));
+
+  if (teamClockSeconds != null) {
+    if (teamClockSeconds < 15) {
+      delay = Math.min(delay, 200);
+    } else if (teamClockSeconds < 30) {
+      delay = Math.min(delay, 350);
+    }
+  }
+
+  return delay;
 }
 
 /** Fallback when the scored pick fails validation on the server. */

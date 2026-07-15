@@ -26,7 +26,7 @@ export interface PhysicalClockDisplay {
   blackRunning: boolean;
 }
 
-function buildPhysicalDisplays(
+export function buildPhysicalDisplays(
   boards: BoardDocument[],
   match: MatchDocument,
   nowMs: number

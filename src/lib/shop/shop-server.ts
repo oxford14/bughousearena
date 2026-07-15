@@ -1,5 +1,6 @@
 import type { Firestore } from "firebase-admin/firestore";
 import { getShopItem } from "@/lib/shop/catalog";
+import { debitCoins, WalletError } from "@/lib/wallet/wallet-server";
 
 export async function purchaseShopItemForUser(
   db: Firestore,
@@ -12,37 +13,40 @@ export async function purchaseShopItemForUser(
   }
 
   const userRef = db.collection("users").doc(uid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    throw new Error("User not found.");
+  }
 
-  return db.runTransaction(async (tx) => {
-    const userSnap = await tx.get(userRef);
-    if (!userSnap.exists) {
-      throw new Error("User not found.");
-    }
+  const userData = userSnap.data()!;
+  const ownedItems = (userData.ownedItems as string[] | undefined) ?? [];
 
-    const userData = userSnap.data()!;
-    const ownedItems = (userData.ownedItems as string[] | undefined) ?? [];
+  if (ownedItems.includes(itemId)) {
+    throw new Error("You already own this item.");
+  }
 
-    if (ownedItems.includes(itemId)) {
-      throw new Error("You already own this item.");
-    }
-
-    const arenaCoins = (userData.arenaCoins as number) ?? 0;
-    if (arenaCoins < catalogItem.priceCoins) {
-      throw new Error("Not enough Arena Coins.");
-    }
-
-    const nextOwned = [...ownedItems, itemId];
-
-    tx.update(userRef, {
-      arenaCoins: arenaCoins - catalogItem.priceCoins,
-      ownedItems: nextOwned,
+  try {
+    const result = await debitCoins(db, {
+      uid,
+      amount: -catalogItem.priceCoins,
+      type: "shop_purchase",
+      refId: itemId,
+      metadata: { itemLabel: catalogItem.label },
     });
 
+    const nextOwned = [...ownedItems, itemId];
+    await userRef.update({ ownedItems: nextOwned });
+
     return {
-      arenaCoins: arenaCoins - catalogItem.priceCoins,
+      arenaCoins: result.balanceAfter,
       ownedItems: nextOwned,
     };
-  });
+  } catch (error) {
+    if (error instanceof WalletError && error.code === "INSUFFICIENT_FUNDS") {
+      throw new Error("Not enough Arena Coins.");
+    }
+    throw error;
+  }
 }
 
 export type EquipSlot =

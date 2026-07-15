@@ -23,17 +23,25 @@ export function LobbyHeader({ profile }: LobbyHeaderProps) {
 
       <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <motion.div
-            className="relative shrink-0"
-            animate={{ filter: ["drop-shadow(0 0 8px rgba(124,58,237,0.4))", "drop-shadow(0 0 16px rgba(244,63,94,0.5))", "drop-shadow(0 0 8px rgba(124,58,237,0.4))"] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          >
+          <motion.div className="relative shrink-0">
+            <motion.div
+              className="pointer-events-none absolute inset-0 rounded-full bg-[rgba(124,58,237,0.45)] blur-lg"
+              animate={{ opacity: [0.35, 0.75, 0.35] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+              aria-hidden
+            />
+            <motion.div
+              className="pointer-events-none absolute inset-0 rounded-full bg-[rgba(244,63,94,0.3)] blur-lg"
+              animate={{ opacity: [0.2, 0.55, 0.2] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 0.35 }}
+              aria-hidden
+            />
             <Image
               src="/assets/lobby/arena-emblem.svg"
               alt=""
               width={56}
               height={56}
-              className="h-14 w-14"
+              className="relative z-10 h-14 w-14"
             />
           </motion.div>
           <div>

@@ -12,7 +12,9 @@
         "supportEmail": "neilandrewfuerzas@gmail.com",
         "authorizedRedirectUris": [
           "https://bughousearena.firebaseapp.com/__/auth/handler",
-          "https://bughousearena.web.app/__/auth/handler"
+          "https://bughousearena.web.app/__/auth/handler",
+          "https://bughousearena.com/__/auth/handler",
+          "https://www.bughousearena.com/__/auth/handler"
         ]
       }
     }

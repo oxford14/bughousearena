@@ -14,7 +14,9 @@ import {
   signInWithGoogle,
   signUpWithEmail,
 } from "@/lib/firebase/auth";
+import { isAllowedAuthHost, PRODUCTION_APP_ORIGIN } from "@/lib/app-config";
 import { formatAuthError } from "@/lib/firebase/auth-errors";
+import { applyReferralCode } from "@/lib/wallet/wallet-api";
 import { toast } from "sonner";
 import { useSound } from "@/providers/sound-provider";
 
@@ -23,28 +25,28 @@ export function LoginForm() {
   const searchParams = useSearchParams();
   const { play } = useSound();
   const nextPath = searchParams.get("next") ?? "/app/home";
+  const referralFromUrl = searchParams.get("ref") ?? "";
   const [loading, setLoading] = useState(false);
   const [checkingRedirect, setCheckingRedirect] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
+  const [referralCode, setReferralCode] = useState(referralFromUrl);
   const [authTab, setAuthTab] = useState<"signin" | "signup">("signin");
   const [hostHint, setHostHint] = useState<string | null>(null);
 
   useEffect(() => {
     const host = window.location.hostname;
-    const allowed =
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host.endsWith(".web.app") ||
-      host.endsWith(".firebaseapp.com") ||
-      host.endsWith(".vercel.app");
-    if (!allowed) {
+    if (!isAllowedAuthHost(host)) {
       setHostHint(
-        `Google sign-in requires http://localhost:3000 — you are on ${window.location.host}.`
+        `Google sign-in requires an authorized domain — you are on ${window.location.host}. Use ${PRODUCTION_APP_ORIGIN} or http://localhost:3000 locally.`
       );
     }
   }, []);
+
+  useEffect(() => {
+    if (referralFromUrl) setReferralCode(referralFromUrl);
+  }, [referralFromUrl]);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +109,13 @@ export function LoginForm() {
     setLoading(true);
     try {
       await signUpWithEmail(email, password, displayName || "Arena Player");
+      if (referralCode.trim()) {
+        try {
+          await applyReferralCode(referralCode.trim());
+        } catch {
+          /* referral optional */
+        }
+      }
       play("uiSuccess");
       toast.success("Account created!");
       router.push(nextPath);
@@ -201,6 +210,16 @@ export function LoginForm() {
           <div>
             <Label htmlFor="signup-password">Password</Label>
             <Input id="signup-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </div>
+          <div>
+            <Label htmlFor="referral">Referral code (optional)</Label>
+            <Input
+              id="referral"
+              value={referralCode}
+              onChange={(e) => setReferralCode(e.target.value.toUpperCase())}
+              placeholder="6-character code"
+              maxLength={6}
+            />
           </div>
           <Button className="w-full btn-arena-primary cursor-pointer" onClick={handleSignUp} disabled={loading}>
             Create Account
