@@ -24,15 +24,15 @@ const DEFAULT_SERVICE_ACCOUNT_FILE = path.join(
   "firebase-service-account.json"
 );
 
-function unquoteEnvValue(value: string): string {
+function stripSurroundingQuotes(value: string): string {
   const trimmed = value.trim();
   if (
     (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
     (trimmed.startsWith("'") && trimmed.endsWith("'"))
   ) {
-    return trimmed.slice(1, -1).replace(/\\n/g, "\n");
+    return trimmed.slice(1, -1);
   }
-  return trimmed.replace(/\\n/g, "\n");
+  return trimmed;
 }
 
 function normalizeServiceAccount(
@@ -76,14 +76,23 @@ function loadFromInlineCredentials(): admin.ServiceAccount | null {
     process.env.FIREBASE_SERVICE_ACCOUNT_KEY?.trim();
   if (!inlineJson) return null;
 
-  const value = unquoteEnvValue(inlineJson);
+  const value = stripSurroundingQuotes(inlineJson);
 
   if (value.startsWith("{")) {
-    try {
-      return normalizeServiceAccount(JSON.parse(value) as admin.ServiceAccount);
-    } catch {
-      return null;
+    // Full service account JSON. JSON.parse keeps the private key's \n escapes
+    // intact. If a .env loader already expanded them into real newlines (which
+    // makes the JSON invalid), re-escape and retry.
+    const candidates = [value, value.replace(/\r?\n/g, "\\n")];
+    for (const candidate of candidates) {
+      try {
+        return normalizeServiceAccount(
+          JSON.parse(candidate) as admin.ServiceAccount
+        );
+      } catch {
+        /* try next candidate */
+      }
     }
+    return null;
   }
 
   if (value.includes("BEGIN PRIVATE KEY")) {
@@ -96,7 +105,7 @@ function loadFromInlineCredentials(): admin.ServiceAccount | null {
     return {
       projectId: getProjectId(),
       clientEmail,
-      privateKey: value,
+      privateKey: value.replace(/\\n/g, "\n"),
     };
   }
 
