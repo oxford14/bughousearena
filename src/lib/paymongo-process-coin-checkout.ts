@@ -1,5 +1,8 @@
 import { FieldValue } from "firebase-admin/firestore";
-import { fetchPaymongoCheckoutSession } from "@/lib/paymongo";
+import {
+  fetchPaymongoCheckoutSession,
+  fetchPaymongoPaymentIntent,
+} from "@/lib/paymongo";
 import {
   fulfillCoinPurchase,
   getPurchaseStatusForUser,
@@ -84,6 +87,66 @@ export async function processPaidCoinCheckoutSession(
   }
 }
 
+export async function processPaidQrphIntent(
+  paymentIntentId: string,
+  secretKey: string,
+  options?: { expectedUid?: string }
+): Promise<ProcessCoinCheckoutResult> {
+  const intent = await fetchPaymongoPaymentIntent(paymentIntentId, secretKey);
+  if (!intent) {
+    throw new Error("Payment intent not found.");
+  }
+
+  const purchaseId = intent.metadata.purchaseId;
+  const uid = intent.metadata.uid;
+  if (!purchaseId || !uid) {
+    throw new Error("Payment intent is missing purchase metadata.");
+  }
+
+  if (options?.expectedUid && uid !== options.expectedUid) {
+    throw new Error("This payment does not belong to your account.");
+  }
+
+  if (intent.status !== "paid") {
+    return {
+      processed: false,
+      message: "Payment is still processing. Please wait a moment.",
+    };
+  }
+
+  const shouldProcess = await markSessionProcessed(paymentIntentId);
+  if (!shouldProcess) {
+    const status = await getPurchaseStatusForUser(purchaseId, uid);
+    return {
+      processed: true,
+      duplicate: true,
+      baseCoins: status.baseCoins,
+      bonusCoins: status.bonusCoins,
+      coinsCredited: status.coinsCredited,
+    };
+  }
+
+  try {
+    const result = await fulfillCoinPurchase(purchaseId);
+    return {
+      processed: true,
+      baseCoins: result.baseCoins,
+      bonusCoins: result.bonusCoins,
+      coinsCredited: result.coinsCredited,
+    };
+  } catch (error) {
+    try {
+      await getAdminDb()
+        .collection("paymongoProcessedSessions")
+        .doc(paymentIntentId)
+        .delete();
+    } catch {
+      /* allow retry */
+    }
+    throw error;
+  }
+}
+
 export async function createPendingCoinPurchase(
   uid: string,
   pack: { id: string; coins: number; amountCentavos: number }
@@ -112,5 +175,14 @@ export async function attachCheckoutSessionToPurchase(
 ): Promise<void> {
   await getAdminDb().collection("coinPurchases").doc(purchaseId).update({
     paymongoCheckoutSessionId: checkoutSessionId,
+  });
+}
+
+export async function attachPaymentIntentToPurchase(
+  purchaseId: string,
+  paymentIntentId: string
+): Promise<void> {
+  await getAdminDb().collection("coinPurchases").doc(purchaseId).update({
+    paymongoPaymentIntentId: paymentIntentId,
   });
 }

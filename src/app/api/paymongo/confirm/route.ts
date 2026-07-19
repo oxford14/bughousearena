@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
-import { processPaidCoinCheckoutSession } from "@/lib/paymongo-process-coin-checkout";
+import {
+  processPaidCoinCheckoutSession,
+  processPaidQrphIntent,
+} from "@/lib/paymongo-process-coin-checkout";
 import {
   getPurchaseStatusForUser,
 } from "@/lib/paymongo-coin-fulfillment";
@@ -42,42 +45,51 @@ export async function POST(request: Request) {
       });
     }
 
-    let sessionId = body.sessionId;
-    if (!sessionId) {
-      const snap = await getAdminDb()
-        .collection("coinPurchases")
-        .doc(purchaseId)
-        .get();
-      sessionId = snap.data()?.paymongoCheckoutSessionId as string | undefined;
-    }
+    const snap = await getAdminDb()
+      .collection("coinPurchases")
+      .doc(purchaseId)
+      .get();
+    const purchaseData = snap.data();
+    const sessionId =
+      body.sessionId ??
+      (purchaseData?.paymongoCheckoutSessionId as string | undefined);
+    const paymentIntentId = purchaseData?.paymongoPaymentIntentId as
+      | string
+      | undefined;
 
-    if (sessionId) {
-      const result = await processPaidCoinCheckoutSession(sessionId, secretKey, {
-        expectedUid: uid,
-      });
+    const result = sessionId
+      ? await processPaidCoinCheckoutSession(sessionId, secretKey, {
+          expectedUid: uid,
+        })
+      : paymentIntentId
+        ? await processPaidQrphIntent(paymentIntentId, secretKey, {
+            expectedUid: uid,
+          })
+        : null;
 
-      if (!result.processed) {
-        return NextResponse.json({
-          status: "pending",
-          message: result.message ?? "Payment not completed yet.",
-        });
-      }
-
-      const status = await getPurchaseStatusForUser(purchaseId, uid);
+    if (!result) {
       return NextResponse.json({
-        status: "paid",
-        coins: status.coinsCredited,
-        baseCoins: status.baseCoins,
-        bonusCoins: status.bonusCoins,
-        packId: status.packId,
-        processed: true,
-        duplicate: result.duplicate,
+        status: "pending",
+        message: "Payment not completed yet.",
       });
     }
 
+    if (!result.processed) {
+      return NextResponse.json({
+        status: "pending",
+        message: result.message ?? "Payment not completed yet.",
+      });
+    }
+
+    const status = await getPurchaseStatusForUser(purchaseId, uid);
     return NextResponse.json({
-      status: "pending",
-      message: "Payment not completed yet.",
+      status: "paid",
+      coins: status.coinsCredited,
+      baseCoins: status.baseCoins,
+      bonusCoins: status.bonusCoins,
+      packId: status.packId,
+      processed: true,
+      duplicate: result.duplicate,
     });
   } catch (error) {
     const message =

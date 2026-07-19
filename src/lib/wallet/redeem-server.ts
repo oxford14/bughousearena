@@ -104,6 +104,101 @@ export async function createRedemptionRequest(
   }
 }
 
+export async function markRedemptionProcessing(
+  db: Firestore,
+  requestId: string,
+  transferId: string,
+  batchId: string
+): Promise<void> {
+  const requestRef = db.collection("redemptionRequests").doc(requestId);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(requestRef);
+    if (!snap.exists) throw new Error("Request not found.");
+    const status = snap.data()!.status as string;
+    if (status !== "pending") {
+      throw new Error(`Request is not payable (status: ${status}).`);
+    }
+    tx.update(requestRef, {
+      status: "processing",
+      paymongoTransferId: transferId,
+      paymongoBatchId: batchId,
+    });
+  });
+}
+
+/** Marks a redemption paid, matched by its PayMongo transfer id. Idempotent. */
+export async function markRedemptionPaidByTransfer(
+  db: Firestore,
+  transferId: string
+): Promise<boolean> {
+  const snap = await db
+    .collection("redemptionRequests")
+    .where("paymongoTransferId", "==", transferId)
+    .limit(1)
+    .get();
+  if (snap.empty) return false;
+
+  const requestRef = snap.docs[0]!.ref;
+  return db.runTransaction(async (tx) => {
+    const fresh = await tx.get(requestRef);
+    const status = fresh.data()!.status as string;
+    if (status === "paid") return false;
+    tx.update(requestRef, {
+      status: "paid",
+      processedAt: FieldValue.serverTimestamp(),
+    });
+    return true;
+  });
+}
+
+/**
+ * Marks a redemption failed and refunds coins, matched by transfer id.
+ * Idempotent — only refunds once.
+ */
+export async function markRedemptionFailedByTransfer(
+  db: Firestore,
+  transferId: string,
+  note?: string
+): Promise<boolean> {
+  const snap = await db
+    .collection("redemptionRequests")
+    .where("paymongoTransferId", "==", transferId)
+    .limit(1)
+    .get();
+  if (snap.empty) return false;
+
+  const requestRef = snap.docs[0]!.ref;
+  return db.runTransaction(async (tx) => {
+    const fresh = await tx.get(requestRef);
+    const data = fresh.data()!;
+    if (data.status === "failed" || data.status === "rejected") return false;
+
+    const uid = data.uid as string;
+    const coins = data.coins as number;
+    const userRef = db.collection("users").doc(uid);
+    const userSnap = await tx.get(userRef);
+    const balance = (userSnap.data()?.arenaCoins as number) ?? 0;
+    const nextBalance = balance + coins;
+
+    tx.update(userRef, { arenaCoins: nextBalance });
+    tx.set(db.collection("coinLedger").doc(`redeem_refund_${fresh.id}_${uid}`), {
+      uid,
+      amount: coins,
+      type: "redeem_refund",
+      refId: fresh.id,
+      balanceAfter: nextBalance,
+      metadata: { reason: "transfer_failed", note: note ?? null },
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    tx.update(requestRef, {
+      status: "failed",
+      adminNote: note ?? "PayMongo transfer failed.",
+      processedAt: FieldValue.serverTimestamp(),
+    });
+    return true;
+  });
+}
+
 export async function processRedemptionRequest(
   db: Firestore,
   requestId: string,

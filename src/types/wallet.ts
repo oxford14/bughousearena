@@ -11,7 +11,8 @@ export type CoinLedgerType =
   | "redeem_lock"
   | "redeem_refund"
   | "topup"
-  | "shop_purchase";
+  | "shop_purchase"
+  | "admin_adjust";
 
 export interface CoinLedgerEntry {
   id: string;
@@ -24,7 +25,12 @@ export interface CoinLedgerEntry {
   createdAt: Timestamp;
 }
 
-export type RedemptionStatus = "pending" | "paid" | "rejected";
+export type RedemptionStatus =
+  | "pending"
+  | "processing"
+  | "paid"
+  | "rejected"
+  | "failed";
 
 export interface RedemptionRequest {
   id: string;
@@ -36,6 +42,8 @@ export interface RedemptionRequest {
   gcashName: string;
   status: RedemptionStatus;
   adminNote?: string | null;
+  paymongoTransferId?: string | null;
+  paymongoBatchId?: string | null;
   createdAt: Timestamp;
   processedAt?: Timestamp | null;
 }

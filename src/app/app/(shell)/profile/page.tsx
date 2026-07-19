@@ -27,6 +27,7 @@ import { SoundToggle } from "@/components/arena/sound-toggle";
 import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { ChangePasswordForm } from "@/components/arena/change-password-form";
 import { InviteEarnSection } from "@/components/arena/referrals/invite-earn-section";
+import { SuperAdminProfileLink } from "@/components/arena/admin/super-admin-profile-link";
 import type { UserProfile } from "@/types/firestore";
 
 function getRankedStats(
@@ -87,6 +88,8 @@ export default function ProfilePage() {
   return (
     <div className="max-w-2xl mx-auto space-y-6">
       <h1 className="font-heading text-3xl neon-glow">Profile</h1>
+
+      <SuperAdminProfileLink />
 
       <Card className="arena-card border-primary/20">
         <CardContent className="pt-6">

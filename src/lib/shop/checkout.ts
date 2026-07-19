@@ -48,6 +48,36 @@ export async function createCoinCheckout(
   return data;
 }
 
+export interface CreateQrphResult {
+  purchaseId: string;
+  paymentIntentId: string;
+  qrImageUrl: string;
+  expiresAt: number | null;
+  referenceNumber: string;
+  amountCentavos: number;
+}
+
+export async function createCoinQrph(
+  packId: string
+): Promise<CreateQrphResult> {
+  const headers = await getAuthHeaders();
+  const response = await fetch("/api/paymongo/create-qrph", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ packId }),
+  });
+
+  const data = (await response.json()) as CreateQrphResult & {
+    error?: string;
+  };
+
+  if (!response.ok) {
+    throw new Error(data.error ?? "Could not generate QR Ph code.");
+  }
+
+  return data;
+}
+
 export async function confirmCoinPurchase(
   purchaseId: string
 ): Promise<PurchaseStatusResult> {

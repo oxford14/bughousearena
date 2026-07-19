@@ -3,19 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
-  completeGoogleRedirectSignIn,
   signInWithEmail,
-  signInWithGoogle,
   signUpWithEmail,
 } from "@/lib/firebase/auth";
-import { isAllowedAuthHost, PRODUCTION_APP_ORIGIN } from "@/lib/app-config";
-import { formatAuthError } from "@/lib/firebase/auth-errors";
 import { applyReferralCode } from "@/lib/wallet/wallet-api";
 import { toast } from "sonner";
 import { useSound } from "@/providers/sound-provider";
@@ -27,68 +22,15 @@ export function LoginForm() {
   const nextPath = searchParams.get("next") ?? "/app/home";
   const referralFromUrl = searchParams.get("ref") ?? "";
   const [loading, setLoading] = useState(false);
-  const [checkingRedirect, setCheckingRedirect] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [referralCode, setReferralCode] = useState(referralFromUrl);
   const [authTab, setAuthTab] = useState<"signin" | "signup">("signin");
-  const [hostHint, setHostHint] = useState<string | null>(null);
-
-  useEffect(() => {
-    const host = window.location.hostname;
-    if (!isAllowedAuthHost(host)) {
-      setHostHint(
-        `Google sign-in requires an authorized domain — you are on ${window.location.host}. Use ${PRODUCTION_APP_ORIGIN} or http://localhost:3000 locally.`
-      );
-    }
-  }, []);
 
   useEffect(() => {
     if (referralFromUrl) setReferralCode(referralFromUrl);
   }, [referralFromUrl]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setCheckingRedirect(true);
-    void completeGoogleRedirectSignIn()
-      .then((user) => {
-        if (cancelled || !user) return;
-        play("uiSuccess");
-        toast.success("Welcome to the arena!");
-        router.replace(nextPath);
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error("[auth] redirect sign-in failed", error);
-        toast.error(formatAuthError(error));
-      })
-      .finally(() => {
-        if (!cancelled) setCheckingRedirect(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [nextPath, play, router]);
-
-  const handleGoogle = async () => {
-    setLoading(true);
-    try {
-      await signInWithGoogle();
-      play("uiSuccess");
-      toast.success("Welcome to the arena!");
-      router.push(nextPath);
-    } catch (error) {
-      if (error instanceof Error && error.message === "REDIRECT_PENDING") {
-        return;
-      }
-      play("uiError");
-      console.error("[auth] google sign-in failed", error);
-      toast.error(formatAuthError(error));
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleSignIn = async () => {
     setLoading(true);
@@ -133,28 +75,6 @@ export function LoginForm() {
       <p className="text-sm text-muted-foreground text-center mb-6">
         Sign in to play ranked, join houses, and track your stats.
       </p>
-
-      {hostHint ? (
-        <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-center text-xs text-amber-200">
-          {hostHint}
-        </p>
-      ) : null}
-
-      <Button
-        variant="outline"
-        className="w-full mb-6 cursor-pointer"
-        onClick={handleGoogle}
-        disabled={loading || checkingRedirect}
-      >
-        {loading || checkingRedirect ? (
-          <>
-            <Loader2 className="h-4 w-4 animate-spin" />
-            {checkingRedirect ? "Completing sign-in…" : "Signing in…"}
-          </>
-        ) : (
-          "Continue with Google"
-        )}
-      </Button>
 
       <div
         role="tablist"

@@ -1,13 +1,30 @@
 import { NextResponse } from "next/server";
 import { verifyPaymongoSignature } from "@/lib/paymongo";
-import { processPaidCoinCheckoutSession } from "@/lib/paymongo-process-coin-checkout";
+import {
+  processPaidCoinCheckoutSession,
+  processPaidQrphIntent,
+} from "@/lib/paymongo-process-coin-checkout";
 import { getAdminDb } from "@/lib/firebase-admin";
+import {
+  markRedemptionFailedByTransfer,
+  markRedemptionPaidByTransfer,
+} from "@/lib/wallet/redeem-server";
 
 export const runtime = "nodejs";
 
 const HANDLED_EVENTS = new Set([
   "checkout_session.payment.paid",
+  "payment.paid",
+  "transfer.outward.successful",
+  "transfer.outward.failed",
 ]);
+
+function extractTransferId(payload: Record<string, unknown>): string | null {
+  const data = payload?.data as {
+    attributes?: { data?: { id?: string } };
+  };
+  return data?.attributes?.data?.id ?? null;
+}
 
 async function markEventProcessed(eventId: string): Promise<boolean> {
   const db = getAdminDb();
@@ -36,6 +53,15 @@ function extractCheckoutSessionId(payload: Record<string, unknown>): string | nu
     return inner.id;
   }
   return null;
+}
+
+function extractPaymentIntentId(payload: Record<string, unknown>): string | null {
+  const data = payload?.data as {
+    attributes?: {
+      data?: { attributes?: { payment_intent_id?: string } };
+    };
+  };
+  return data?.attributes?.data?.attributes?.payment_intent_id ?? null;
 }
 
 export async function POST(request: Request) {
@@ -94,6 +120,55 @@ export async function POST(request: Request) {
   }
 
   try {
+    if (
+      eventType === "transfer.outward.successful" ||
+      eventType === "transfer.outward.failed"
+    ) {
+      const transferId = extractTransferId(payload);
+      if (!transferId) {
+        return NextResponse.json({ received: true, warning: "no_transfer_id" });
+      }
+      if (eventType === "transfer.outward.successful") {
+        const done = await markRedemptionPaidByTransfer(getAdminDb(), transferId);
+        return NextResponse.json({ received: true, processed: done, transferId });
+      }
+      const refunded = await markRedemptionFailedByTransfer(
+        getAdminDb(),
+        transferId,
+        "PayMongo reported the transfer failed."
+      );
+      return NextResponse.json({ received: true, refunded, transferId });
+    }
+
+    if (eventType === "payment.paid") {
+      const paymentIntentId = extractPaymentIntentId(payload);
+      if (!paymentIntentId) {
+        return NextResponse.json({ received: true, warning: "no_payment_intent" });
+      }
+
+      try {
+        const result = await processPaidQrphIntent(paymentIntentId, secretKey);
+        if (!result.processed) {
+          return NextResponse.json({ received: true, warning: result.message });
+        }
+        return NextResponse.json({
+          received: true,
+          processed: true,
+          paymentIntentId,
+          duplicate: result.duplicate,
+        });
+      } catch (error) {
+        // Hosted-checkout payments also fire payment.paid but their intent
+        // carries no purchase metadata — safely skip those (already handled
+        // by checkout_session.payment.paid).
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("missing purchase metadata")) {
+          return NextResponse.json({ received: true, skipped: "non_qrph_payment" });
+        }
+        throw error;
+      }
+    }
+
     const sessionId = extractCheckoutSessionId(payload);
     if (!sessionId) {
       console.warn("[PayMongo Webhook] No checkout session in event");

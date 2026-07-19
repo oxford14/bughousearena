@@ -44,6 +44,8 @@ export interface UserProfile {
   referredByUid?: string | null;
   /** Total completed matches (for redeem eligibility). */
   completedMatches?: number;
+  /** Set when an account is banned/suspended by a super admin. */
+  banned?: boolean;
 }
 
 export type CoinPurchaseStatus = "pending" | "paid" | "failed" | "expired";
