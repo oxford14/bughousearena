@@ -8,9 +8,13 @@ import {
 import { getFirebaseDb } from "@/lib/firebase/config";
 import { isBotUid } from "@/lib/game/bots";
 import { calculateElo } from "@/lib/game/elo-calc";
+import {
+  DEFAULT_RATING,
+  normalizeGameType,
+  type ChessGameType,
+} from "@/lib/game/game-types";
 import type { MatchDocument, MatchPlayer } from "@/types/firestore";
 
-const DEFAULT_RATING = 1200;
 const RANKED_K = 32;
 
 function teamAverageRating(players: MatchPlayer[], team: 1 | 2): number {
@@ -22,7 +26,7 @@ function teamAverageRating(players: MatchPlayer[], team: 1 | 2): number {
   );
 }
 
-/** ELO delta for one human in a completed team match. */
+/** ELO delta for one human in a completed ranked/rated match. */
 export function computeRankedRatingDelta(
   match: MatchDocument,
   uid: string
@@ -41,6 +45,39 @@ export function computeRankedRatingDelta(
   const currentRating = player.rating ?? DEFAULT_RATING;
   const newRating = calculateElo(currentRating, opponentRating, score, RANKED_K);
   return newRating - currentRating;
+}
+
+function ratingFieldsForGameType(gameType: ChessGameType): {
+  rating: string;
+  wins: string;
+  losses: string;
+} {
+  if (gameType === "standard") {
+    return {
+      rating: "standardRating",
+      wins: "standardRankedWins",
+      losses: "standardRankedLosses",
+    };
+  }
+  if (gameType === "crazyhouse") {
+    return {
+      rating: "crazyhouseRating",
+      wins: "crazyhouseRankedWins",
+      losses: "crazyhouseRankedLosses",
+    };
+  }
+  if (gameType === "atomic") {
+    return {
+      rating: "atomicRating",
+      wins: "atomicRankedWins",
+      losses: "atomicRankedLosses",
+    };
+  }
+  return {
+    rating: "rating",
+    wins: "rankedWins",
+    losses: "rankedLosses",
+  };
 }
 
 /**
@@ -73,29 +110,36 @@ export async function applyRankedRatingForUser(
     const delta = computeRankedRatingDelta(match, uid);
     if (delta == null) return null;
 
-    const currentRating = (userData.rating as number) ?? DEFAULT_RATING;
+    const gameType = normalizeGameType(match.gameType);
+    const fields = ratingFieldsForGameType(gameType);
+    const currentRating =
+      (userData[fields.rating] as number | undefined) ?? DEFAULT_RATING;
     const newRating = currentRating + delta;
-    const won = match.winnerTeam === match.players.find((p) => p.uid === uid)?.team;
+    const won =
+      match.winnerTeam === match.players.find((p) => p.uid === uid)?.team;
 
     transaction.update(userRef, {
-      rating: newRating,
+      [fields.rating]: newRating,
       lastRatedMatchId: matchId,
       lastRatingChange: delta,
-      rankedWins: increment(won ? 1 : 0),
-      rankedLosses: increment(won ? 0 : 1),
+      [fields.wins]: increment(won ? 1 : 0),
+      [fields.losses]: increment(won ? 0 : 1),
     });
 
-    transaction.set(
-      leaderboardRef,
-      {
-        uid,
-        displayName: userData.displayName ?? "Player",
-        photoURL: userData.photoURL ?? null,
-        rating: newRating,
-        updatedAt: serverTimestamp(),
-      },
-      { merge: true }
-    );
+    // Global leaderboard stays Bughouse-primary.
+    if (gameType === "bughouse") {
+      transaction.set(
+        leaderboardRef,
+        {
+          uid,
+          displayName: userData.displayName ?? "Player",
+          photoURL: userData.photoURL ?? null,
+          rating: newRating,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+    }
 
     return delta;
   });

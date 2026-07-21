@@ -3,13 +3,16 @@ import { debitCoins, WalletError } from "@/lib/wallet/wallet-server";
 import {
   getRedeemBundle,
   REDEEM_MIN_ACCOUNT_AGE_DAYS,
-  REDEEM_MIN_MATCHES,
+  REDEEM_MIN_RANKED_MATCHES,
 } from "@/lib/wallet/redeem-bundles";
+import {
+  stripAccountDigits,
+  validatePayoutDestination,
+} from "@/lib/wallet/payout-methods";
 
 export async function checkRedeemEligibility(
   db: Firestore,
-  uid: string,
-  emailVerified: boolean
+  uid: string
 ): Promise<{ eligible: boolean; reasons: string[] }> {
   const reasons: string[] = [];
   const userSnap = await db.collection("users").doc(uid).get();
@@ -18,9 +21,13 @@ export async function checkRedeemEligibility(
   }
 
   const data = userSnap.data()!;
-  const completedMatches = (data.completedMatches as number) ?? 0;
-  if (completedMatches < REDEEM_MIN_MATCHES) {
-    reasons.push(`Play ${REDEEM_MIN_MATCHES - completedMatches} more matches (${completedMatches}/${REDEEM_MIN_MATCHES}).`);
+  const rankedPlayed =
+    ((data.rankedWins as number | undefined) ?? 0) +
+    ((data.rankedLosses as number | undefined) ?? 0);
+  if (rankedPlayed < REDEEM_MIN_RANKED_MATCHES) {
+    reasons.push(
+      `Play ${REDEEM_MIN_RANKED_MATCHES - rankedPlayed} more ranked games (${rankedPlayed}/${REDEEM_MIN_RANKED_MATCHES}).`
+    );
   }
 
   const createdAt = data.createdAt?.toDate?.() as Date | undefined;
@@ -29,10 +36,6 @@ export async function checkRedeemEligibility(
     if (ageDays < REDEEM_MIN_ACCOUNT_AGE_DAYS) {
       reasons.push(`Account must be at least ${REDEEM_MIN_ACCOUNT_AGE_DAYS} days old.`);
     }
-  }
-
-  if (!emailVerified) {
-    reasons.push("Verify your email address to redeem.");
   }
 
   const pendingSnap = await db
@@ -51,26 +54,34 @@ export async function checkRedeemEligibility(
 export async function createRedemptionRequest(
   db: Firestore,
   uid: string,
-  bundleId: string,
-  gcashNumber: string,
-  gcashName: string,
-  emailVerified: boolean
+  input: {
+    bundleId: string;
+    payoutMethod: "gcash" | "maya" | "bank";
+    accountName: string;
+    accountNumber: string;
+    bankName?: string | null;
+  }
 ): Promise<{ requestId: string; balanceAfter: number }> {
-  const bundle = getRedeemBundle(bundleId);
+  const bundle = getRedeemBundle(input.bundleId);
   if (!bundle) throw new Error("Unknown redemption bundle.");
 
-  const eligibility = await checkRedeemEligibility(db, uid, emailVerified);
+  const eligibility = await checkRedeemEligibility(db, uid);
   if (!eligibility.eligible) {
     throw new Error(eligibility.reasons[0] ?? "Not eligible to redeem.");
   }
 
-  const normalizedNumber = gcashNumber.replace(/\D/g, "");
-  if (normalizedNumber.length < 10 || normalizedNumber.length > 11) {
-    throw new Error("Enter a valid GCash mobile number.");
-  }
-  if (!gcashName.trim()) {
-    throw new Error("GCash account name is required.");
-  }
+  const validationError = validatePayoutDestination({
+    method: input.payoutMethod,
+    accountName: input.accountName,
+    accountNumber: input.accountNumber,
+    bankName: input.bankName,
+  });
+  if (validationError) throw new Error(validationError);
+
+  const accountNumber = stripAccountDigits(input.accountNumber);
+  const accountName = input.accountName.trim();
+  const bankName =
+    input.payoutMethod === "bank" ? input.bankName?.trim() ?? null : null;
 
   const requestRef = db.collection("redemptionRequests").doc();
   const refId = requestRef.id;
@@ -81,16 +92,25 @@ export async function createRedemptionRequest(
       amount: -bundle.coins,
       type: "redeem_lock",
       refId,
-      metadata: { bundleId, phpAmount: bundle.phpAmount },
+      metadata: {
+        bundleId: input.bundleId,
+        phpAmount: bundle.phpAmount,
+        payoutMethod: input.payoutMethod,
+      },
     });
 
     await requestRef.set({
       uid,
-      bundleId,
+      bundleId: input.bundleId,
       coins: bundle.coins,
       phpAmount: bundle.phpAmount,
-      gcashNumber: normalizedNumber,
-      gcashName: gcashName.trim(),
+      payoutMethod: input.payoutMethod,
+      accountName,
+      accountNumber,
+      bankName,
+      // Legacy fields for older admin UIs / payouts
+      gcashNumber: accountNumber,
+      gcashName: accountName,
       status: "pending",
       createdAt: FieldValue.serverTimestamp(),
     });

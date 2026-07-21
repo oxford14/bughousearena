@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { purchaseShopItemForUser } from "@/lib/shop/shop-server";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -15,6 +16,12 @@ function purchaseErrorStatus(message: string): number {
 export async function POST(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "walletMutation",
+    });
+    if (limited) return limited;
+
     const { itemId } = (await request.json()) as { itemId?: string };
 
     if (!itemId || typeof itemId !== "string") {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifySuperAdminRequest } from "@/lib/server/verify-super-admin";
 
 export const runtime = "nodejs";
@@ -17,7 +18,13 @@ export interface AdminTransaction {
 
 export async function GET(request: Request) {
   try {
-    await verifySuperAdminRequest(request);
+    const { uid: adminUid } = await verifySuperAdminRequest(request);
+    const limited = await enforceApiRateLimits(request, {
+      uid: adminUid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
     const db = getAdminDb();
     const url = new URL(request.url);
     const type = url.searchParams.get("type");

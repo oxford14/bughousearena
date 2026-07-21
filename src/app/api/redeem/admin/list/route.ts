@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAdminRequest } from "@/lib/server/verify-admin";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    await verifyAdminRequest(request);
+    const { uid } = await verifyAdminRequest(request);
+
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
     const snap = await getAdminDb()
       .collection("redemptionRequests")
       .where("status", "==", "pending")

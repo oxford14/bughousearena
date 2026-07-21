@@ -1,8 +1,14 @@
 import type { Timestamp } from "firebase/firestore";
 
 export type MatchMode = "casual" | "ranked" | "private" | "stake";
+/** Chess variant. Legacy matches without this field are treated as bughouse. */
+export type ChessGameType = "bughouse" | "standard" | "crazyhouse" | "atomic";
 export type MatchStatus = "setup" | "active" | "completed" | "abandoned";
-export type MatchEndReason = "checkmate" | "time_forfeit" | "resignation";
+export type MatchEndReason =
+  | "checkmate"
+  | "explosion"
+  | "time_forfeit"
+  | "resignation";
 export type PlayerColor = "w" | "b";
 export type HouseRole = "founder" | "steward" | "member";
 export type FriendRequestStatus = "pending" | "accepted" | "declined";
@@ -13,9 +19,22 @@ export interface UserProfile {
   displayName: string;
   photoURL: string | null;
   email: string | null;
+  /** Bughouse rating (primary / legacy). */
   rating: number;
   rankedWins: number;
   rankedLosses: number;
+  /** Standard chess rating (default 1200 when missing). */
+  standardRating?: number;
+  standardRankedWins?: number;
+  standardRankedLosses?: number;
+  /** Crazyhouse rating (default 1200 when missing). */
+  crazyhouseRating?: number;
+  crazyhouseRankedWins?: number;
+  crazyhouseRankedLosses?: number;
+  /** Atomic chess rating (default 1200 when missing). */
+  atomicRating?: number;
+  atomicRankedWins?: number;
+  atomicRankedLosses?: number;
   arenaCoins: number;
   /** Lifetime real-money top-up total in PHP centavos (VIP basis). */
   totalTopUpCentavos?: number;
@@ -42,7 +61,7 @@ export interface UserProfile {
   referralCode?: string;
   /** UID of the player who referred this user. */
   referredByUid?: string | null;
-  /** Total completed matches (for redeem eligibility). */
+  /** Total completed matches (all modes). */
   completedMatches?: number;
   /** Set when an account is banned/suspended by a super admin. */
   banned?: boolean;
@@ -107,6 +126,8 @@ export interface MatchPlayer {
 export interface MatchDocument {
   id: string;
   mode: MatchMode;
+  /** Chess variant. Missing → bughouse. */
+  gameType?: ChessGameType;
   status: MatchStatus;
   players: MatchPlayer[];
   teamClocks: { team1: number; team2: number };
@@ -141,10 +162,12 @@ export interface MatchDocument {
 export interface BoardDocument {
   id: string;
   fen: string;
+  /** Bughouse: partner reserve. Crazyhouse: own pocket. Standard: unused. */
   captured: string[];
   turn: "w" | "b";
   lastMove: string | null;
   playerUid: string;
+  /** Empty for 1v1 single-board matches. */
   partnerBoardId: string;
   team: 1 | 2;
   playerColor?: PlayerColor;
@@ -200,6 +223,8 @@ export interface MatchmakingEntry {
   uid: string;
   displayName: string;
   mode: MatchMode;
+  /** Chess variant. Missing → bughouse. */
+  gameType?: ChessGameType;
   rating: number;
   timestamp: Timestamp;
   partyId?: string | null;
@@ -255,9 +280,14 @@ export interface PrivateRoom {
   code: string;
   hostId: string;
   hostDisplayName: string;
-  settings: { mode: MatchMode; timeControl: number };
+  settings: {
+    mode: MatchMode;
+    timeControl: number;
+    gameType?: ChessGameType;
+  };
   players: MatchPlayer[];
   status: "waiting" | "starting" | "started";
+  matchId?: string | null;
   createdAt: Timestamp;
 }
 
@@ -290,6 +320,15 @@ export interface HouseChatMessage {
   createdAt: Timestamp;
 }
 
+export interface WorldChatMessage {
+  id: string;
+  uid: string;
+  displayName: string;
+  photoURL?: string | null;
+  text: string;
+  createdAt: Timestamp;
+}
+
 export interface LeaderboardEntry {
   id: string;
   displayName: string;
@@ -304,6 +343,7 @@ export interface MatchHistoryEntry {
   id: string;
   matchId: string;
   mode: MatchMode;
+  gameType?: ChessGameType;
   result: "win" | "loss" | "draw";
   opponents: string[];
   duration: number;

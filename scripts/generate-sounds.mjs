@@ -157,6 +157,12 @@ const sounds = {
     sine(880, 0.05, 0.22, 0.002, 0.04),
     sine(1174.66, 0.07, 0.26, 0.002, 0.06)
   ),
+  /** Sharp clock tick for low-time countdown (≤10s). */
+  "clock-tick.wav": mix(
+    sine(1200, 0.045, 0.28, 0.001, 0.03),
+    sine(1800, 0.03, 0.12, 0.001, 0.02),
+    noise(0.02, 0.06, 0.001, 0.015)
+  ),
 };
 
 /** 8s seamless retro arena lobby loop. */

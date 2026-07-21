@@ -87,10 +87,21 @@ export function pickBots(
 export function buildBotFillUnits(
   humans: MatchmakingMember[],
   bots: MatchmakingMember[],
-  options?: { teammates?: boolean }
+  options?: { teammates?: boolean; totalSlots?: number }
 ): MatchmakingMember[][] {
-  if (humans.length + bots.length !== 4) {
-    throw new Error(`Expected 4 total players, got ${humans.length + bots.length}`);
+  const totalSlots = options?.totalSlots ?? 4;
+  const total = humans.length + bots.length;
+  if (total !== totalSlots) {
+    throw new Error(`Expected ${totalSlots} total players, got ${total}`);
+  }
+
+  // 1v1: one human vs one bot
+  if (totalSlots === 2 && humans.length === 1 && bots.length === 1) {
+    return [[humans[0]!], [bots[0]!]];
+  }
+
+  if (totalSlots !== 4) {
+    throw new Error(`Unsupported bot fill size: ${totalSlots}`);
   }
 
   // Party / friends: humans share a team, both bots are opponents.

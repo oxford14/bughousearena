@@ -1,32 +1,40 @@
 import { NextResponse } from "next/server";
-import { PRODUCTION_APP_ORIGIN } from "@/lib/app-config";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { getSafeAppOrigin } from "@/lib/server/app-origin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
+import {
+  adminPayBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifySuperAdminRequest } from "@/lib/server/verify-super-admin";
 import {
-  createGcashTransfer,
-  getGcashReceivingBic,
+  createInstapayTransfer,
+  getInstapayReceivingBic,
 } from "@/lib/paymongo-payout";
 import { markRedemptionProcessing } from "@/lib/wallet/redeem-server";
+import { resolveInstapayInstitutionName } from "@/lib/wallet/payout-methods";
+import type { RedemptionPayoutMethod } from "@/types/wallet";
 
 export const runtime = "nodejs";
 
-function getAppOrigin(request: Request): string {
-  const origin = request.headers.get("origin");
-  if (origin) return origin;
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  }
-  if (process.env.NODE_ENV === "production") return PRODUCTION_APP_ORIGIN;
-  return "http://localhost:3000";
-}
-
 export async function POST(request: Request) {
   try {
-    await verifySuperAdminRequest(request);
-    const { requestId } = (await request.json()) as { requestId?: string };
-    if (!requestId) {
-      return NextResponse.json({ error: "requestId is required." }, { status: 400 });
+    const { uid } = await verifySuperAdminRequest(request);
+
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
+    const parsed = adminPayBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: zodErrorMessage(parsed.error) },
+        { status: 400 }
+      );
     }
+    const { requestId } = parsed.data;
 
     const secretKey = process.env.PAYMONGO_SECRET_KEY;
     const sourceNumber = process.env.PAYMONGO_WALLET_ACCOUNT_NUMBER;
@@ -55,18 +63,28 @@ export async function POST(request: Request) {
       );
     }
 
-    const gcashBic = await getGcashReceivingBic(secretKey);
-    const transfer = await createGcashTransfer({
+    const payoutMethod = (data.payoutMethod as RedemptionPayoutMethod | undefined) ?? "gcash";
+    const accountNumber = String(
+      data.accountNumber ?? data.gcashNumber ?? ""
+    );
+    const accountName = String(data.accountName ?? data.gcashName ?? "");
+    const bankName = (data.bankName as string | null | undefined) ?? null;
+
+    const destinationBic = await getInstapayReceivingBic(
+      secretKey,
+      resolveInstapayInstitutionName({ method: payoutMethod, bankName })
+    );
+    const transfer = await createInstapayTransfer({
       secretKey,
       amountCentavos: Math.round((data.phpAmount as number) * 100),
-      gcashNumber: data.gcashNumber as string,
-      gcashName: data.gcashName as string,
-      gcashBic,
+      accountNumber,
+      accountName,
+      destinationBic,
       sourceNumber,
       sourceName,
       description: `Bughouse Arena payout ${requestId}`,
-      callbackUrl: `${getAppOrigin(request)}/api/paymongo/webhook`,
-      metadata: { requestId, uid: data.uid },
+      callbackUrl: `${getSafeAppOrigin(request)}/api/paymongo/webhook`,
+      metadata: { requestId, uid: data.uid, payoutMethod },
     });
 
     await markRedemptionProcessing(

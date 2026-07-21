@@ -58,10 +58,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) return;
 
     const ref = doc(getFirebaseDb(), "users", user.uid);
-    return onSnapshot(ref, (snap) => {
-      if (!snap.exists()) return;
-      setProfile({ uid: user.uid, ...snap.data() } as UserProfile);
-    });
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return;
+        setProfile({ uid: user.uid, ...snap.data() } as UserProfile);
+      },
+      (error) => {
+        console.error("[auth] profile snapshot failed", error);
+      }
+    );
   }, [user?.uid]);
 
   const value = useMemo(

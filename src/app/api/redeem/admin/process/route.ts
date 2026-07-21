@@ -1,25 +1,33 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { processRedemptionRequest } from "@/lib/wallet/redeem-server";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
+import {
+  adminResolveBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifyAdminRequest } from "@/lib/server/verify-admin";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    await verifyAdminRequest(request);
-    const { requestId, action, adminNote } = (await request.json()) as {
-      requestId?: string;
-      action?: "paid" | "reject";
-      adminNote?: string;
-    };
+    const { uid } = await verifyAdminRequest(request);
 
-    if (!requestId || !action) {
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
+    const parsed = adminResolveBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "requestId and action are required." },
+        { error: zodErrorMessage(parsed.error) },
         { status: 400 }
       );
     }
+    const { requestId, action, adminNote } = parsed.data;
 
     await processRedemptionRequest(
       getAdminDb(),

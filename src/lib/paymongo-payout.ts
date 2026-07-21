@@ -11,14 +11,12 @@ function authHeader(secretKey: string): string {
   return `Basic ${Buffer.from(`${secretKey}:`).toString("base64")}`;
 }
 
-/**
- * Resolves the InstaPay BIC for GCash (G-Xchange) from PayMongo's receiving
- * institutions list. Cached per process.
- */
-let cachedGcashBic: string | null = null;
+let cachedInstitutions: ReceivingInstitution[] | null = null;
 
-export async function getGcashReceivingBic(secretKey: string): Promise<string> {
-  if (cachedGcashBic) return cachedGcashBic;
+async function listInstapayInstitutions(
+  secretKey: string
+): Promise<ReceivingInstitution[]> {
+  if (cachedInstitutions) return cachedInstitutions;
 
   const response = await fetch(
     "https://api.paymongo.com/v2/transfers/receiving_institutions?provider=instapay",
@@ -42,19 +40,64 @@ export async function getGcashReceivingBic(secretKey: string): Promise<string> {
     throw new Error(detail);
   }
 
-  const match = json.data.find((inst) => {
-    const name = (inst.attributes?.name ?? inst.name ?? "").toLowerCase();
-    return name.includes("gcash") || name.includes("g-xchange") || name.includes("g xchange");
-  });
+  cachedInstitutions = json.data;
+  return cachedInstitutions;
+}
 
-  const bic =
-    match?.attributes?.bic ?? match?.bic ?? (match?.id as string | undefined);
+function institutionName(inst: ReceivingInstitution): string {
+  return (inst.attributes?.name ?? inst.name ?? "").toLowerCase();
+}
+
+function institutionBic(inst: ReceivingInstitution): string | null {
+  return (
+    inst.attributes?.bic ??
+    inst.bic ??
+    (typeof inst.id === "string" ? inst.id : null)
+  );
+}
+
+/**
+ * Resolves an InstaPay BIC for GCash, Maya, or a bank by matching institution names.
+ */
+export async function getInstapayReceivingBic(
+  secretKey: string,
+  institutionHint: string
+): Promise<string> {
+  const institutions = await listInstapayInstitutions(secretKey);
+  const needle = institutionHint.toLowerCase().trim();
+  const tokens = needle
+    .split(/[\s,/]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 2);
+
+  const match =
+    institutions.find((inst) => {
+      const name = institutionName(inst);
+      return name === needle || name.includes(needle) || needle.includes(name);
+    }) ??
+    institutions.find((inst) => {
+      const name = institutionName(inst);
+      return tokens.some(
+        (token) =>
+          name.includes(token) ||
+          (token === "g-xchange" && name.includes("gcash")) ||
+          (token === "gcash" && name.includes("g-xchange")) ||
+          (token === "maya" && name.includes("maya"))
+      );
+    });
+
+  const bic = match ? institutionBic(match) : null;
   if (!bic) {
-    throw new Error("Could not resolve a GCash BIC from PayMongo.");
+    throw new Error(
+      `Could not resolve an InstaPay institution for "${institutionHint}".`
+    );
   }
-
-  cachedGcashBic = bic;
   return bic;
+}
+
+/** @deprecated Prefer getInstapayReceivingBic */
+export async function getGcashReceivingBic(secretKey: string): Promise<string> {
+  return getInstapayReceivingBic(secretKey, "G-Xchange");
 }
 
 export interface CreateTransferResult {
@@ -64,15 +107,14 @@ export interface CreateTransferResult {
 }
 
 /**
- * Sends a single GCash payout via PayMongo's batch transfers (InstaPay rail).
- * Requires an activated + funded PayMongo Wallet with disbursements enabled.
+ * Sends a PHP payout via PayMongo batch transfers (InstaPay rail).
  */
-export async function createGcashTransfer(params: {
+export async function createInstapayTransfer(params: {
   secretKey: string;
   amountCentavos: number;
-  gcashNumber: string;
-  gcashName: string;
-  gcashBic: string;
+  accountNumber: string;
+  accountName: string;
+  destinationBic: string;
   sourceNumber: string;
   sourceName: string;
   description: string;
@@ -99,9 +141,9 @@ export async function createGcashTransfer(params: {
             bic: PAYMONGO_WALLET_BIC,
           },
           destination_account: {
-            number: params.gcashNumber,
-            name: params.gcashName,
-            bic: params.gcashBic,
+            number: params.accountNumber,
+            name: params.accountName,
+            bic: params.destinationBic,
           },
           ...(params.callbackUrl ? { callback_url: params.callbackUrl } : {}),
           ...(params.metadata ? { metadata: params.metadata } : {}),
@@ -137,4 +179,31 @@ export async function createGcashTransfer(params: {
   }
 
   return { batchId, transferId, status };
+}
+
+/** @deprecated Prefer createInstapayTransfer */
+export async function createGcashTransfer(params: {
+  secretKey: string;
+  amountCentavos: number;
+  gcashNumber: string;
+  gcashName: string;
+  gcashBic: string;
+  sourceNumber: string;
+  sourceName: string;
+  description: string;
+  callbackUrl?: string;
+  metadata?: Record<string, unknown>;
+}): Promise<CreateTransferResult> {
+  return createInstapayTransfer({
+    secretKey: params.secretKey,
+    amountCentavos: params.amountCentavos,
+    accountNumber: params.gcashNumber,
+    accountName: params.gcashName,
+    destinationBic: params.gcashBic,
+    sourceNumber: params.sourceNumber,
+    sourceName: params.sourceName,
+    description: params.description,
+    callbackUrl: params.callbackUrl,
+    metadata: params.metadata,
+  });
 }

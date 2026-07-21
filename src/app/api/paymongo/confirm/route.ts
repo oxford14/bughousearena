@@ -3,10 +3,13 @@ import {
   processPaidCoinCheckoutSession,
   processPaidQrphIntent,
 } from "@/lib/paymongo-process-coin-checkout";
-import {
-  getPurchaseStatusForUser,
-} from "@/lib/paymongo-coin-fulfillment";
+import { getPurchaseStatusForUser } from "@/lib/paymongo-coin-fulfillment";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
+import {
+  purchaseConfirmBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -22,15 +25,21 @@ export async function POST(request: Request) {
     }
 
     const { uid } = await verifyAuthRequest(request);
-    const body = (await request.json()) as {
-      purchaseId?: string;
-      sessionId?: string;
-    };
 
-    const purchaseId = body.purchaseId;
-    if (!purchaseId || typeof purchaseId !== "string") {
-      return NextResponse.json({ error: "purchaseId is required." }, { status: 400 });
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "topupConfirm",
+    });
+    if (limited) return limited;
+
+    const parsed = purchaseConfirmBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: zodErrorMessage(parsed.error) },
+        { status: 400 }
+      );
     }
+    const { purchaseId, sessionId: bodySessionId } = parsed.data;
 
     const existing = await getPurchaseStatusForUser(purchaseId, uid);
     if (existing.status === "paid") {
@@ -51,7 +60,7 @@ export async function POST(request: Request) {
       .get();
     const purchaseData = snap.data();
     const sessionId =
-      body.sessionId ??
+      bodySessionId ??
       (purchaseData?.paymongoCheckoutSessionId as string | undefined);
     const paymentIntentId = purchaseData?.paymongoPaymentIntentId as
       | string

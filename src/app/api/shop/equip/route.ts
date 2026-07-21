@@ -4,6 +4,7 @@ import {
   equipShopItemForUser,
   type EquipSlot,
 } from "@/lib/shop/shop-server";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -19,6 +20,9 @@ const VALID_SLOTS: EquipSlot[] = [
 export async function POST(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
+    const limited = await enforceApiRateLimits(request, { uid });
+    if (limited) return limited;
+
     const { slot, value } = (await request.json()) as {
       slot?: EquipSlot;
       value?: string | string[];

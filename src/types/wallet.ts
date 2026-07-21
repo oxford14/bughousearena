@@ -32,13 +32,25 @@ export type RedemptionStatus =
   | "rejected"
   | "failed";
 
+export type RedemptionPayoutMethod = "gcash" | "maya" | "bank";
+
 export interface RedemptionRequest {
   id: string;
   uid: string;
   bundleId: string;
   coins: number;
   phpAmount: number;
+  /** Destination method — defaults to gcash for older requests. */
+  payoutMethod?: RedemptionPayoutMethod;
+  /** Account holder name (any method). */
+  accountName?: string;
+  /** Mobile or bank account number (digits). */
+  accountNumber?: string;
+  /** Required when payoutMethod is bank. */
+  bankName?: string | null;
+  /** @deprecated Prefer accountNumber — kept for older requests. */
   gcashNumber: string;
+  /** @deprecated Prefer accountName — kept for older requests. */
   gcashName: string;
   status: RedemptionStatus;
   adminNote?: string | null;

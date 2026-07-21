@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   Search,
   Loader2,
@@ -10,6 +11,8 @@ import {
   ShieldCheck,
   ShieldOff,
   Shield,
+  Swords,
+  Timer,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -33,6 +36,31 @@ import {
   type AdminPlayer,
 } from "@/lib/admin/admin-api";
 import { formatPhpFromCentavos } from "@/lib/shop/coin-packs";
+import { cn } from "@/lib/utils";
+import type { OnlineStatus } from "@/types/firestore";
+
+function statusDotClass(status: OnlineStatus): string {
+  if (status === "online") return "bg-emerald-400";
+  if (status === "away") return "bg-amber-400";
+  return "bg-muted-foreground/40";
+}
+
+function formatLastSeen(iso: string | null): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleString();
+}
+
+function formatQueueLabel(player: AdminPlayer): string {
+  if (!player.inQueue || !player.queueMode) return "In queue";
+  const mode =
+    player.queueMode.charAt(0).toUpperCase() + player.queueMode.slice(1);
+  if (player.queueMode === "stake" && player.queueStakePerPlayer != null) {
+    return `Queue · ${mode} (${player.queueStakePerPlayer})`;
+  }
+  return `Queue · ${mode}`;
+}
 
 export default function SuperAdminPlayersPage() {
   const [players, setPlayers] = useState<AdminPlayer[]>([]);
@@ -162,7 +190,33 @@ export default function SuperAdminPlayersPage() {
                   )}
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 truncate font-medium text-foreground">
+                      <span
+                        className={cn(
+                          "inline-block h-2 w-2 shrink-0 rounded-full",
+                          statusDotClass(player.onlineStatus)
+                        )}
+                        title={player.onlineStatus}
+                        aria-hidden
+                      />
                       {player.displayName}
+                      <Badge
+                        variant="secondary"
+                        className="capitalize"
+                      >
+                        {player.onlineStatus}
+                      </Badge>
+                      {player.inGame && (
+                        <Badge className="gap-1 bg-rose-500/20 text-rose-300 hover:bg-rose-500/20">
+                          <Swords className="h-3 w-3" aria-hidden />
+                          In game
+                        </Badge>
+                      )}
+                      {player.inQueue && !player.inGame && (
+                        <Badge className="gap-1 bg-sky-500/20 text-sky-300 hover:bg-sky-500/20">
+                          <Timer className="h-3 w-3" aria-hidden />
+                          {formatQueueLabel(player)}
+                        </Badge>
+                      )}
                       {player.superAdmin && (
                         <Badge className="bg-primary/20 text-primary">Super</Badge>
                       )}
@@ -183,6 +237,19 @@ export default function SuperAdminPlayersPage() {
                       {player.totalTopUpCentavos > 0 && (
                         <span>{formatPhpFromCentavos(player.totalTopUpCentavos)} spent</span>
                       )}
+                      {player.inGame && player.activeMatchId && (
+                        <Link
+                          href={`/app/match/${player.activeMatchId}`}
+                          className="text-rose-300 hover:underline cursor-pointer"
+                        >
+                          Match {player.activeMatchId.slice(0, 8)}…
+                        </Link>
+                      )}
+                      {player.onlineStatus === "offline" &&
+                        !player.inGame &&
+                        formatLastSeen(player.lastOnline) && (
+                          <span>Last seen {formatLastSeen(player.lastOnline)}</span>
+                        )}
                     </p>
                   </div>
                 </div>

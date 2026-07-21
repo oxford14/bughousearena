@@ -6,7 +6,7 @@
     "dev": "next dev --webpack",
     "build": "node scripts/copy-engine.mjs && next build --webpack",
     "start": "next start",
-    "test": "node --experimental-strip-types --test src/lib/game/bughouse-engine.test.ts src/lib/game/crazyhouse-fen.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/game/bughouse-engine.test.ts src/lib/game/crazyhouse-fen.test.ts src/lib/game/single-board-engine.test.ts",
     "emulators": "firebase emulators:start --import=./emulator-data --export-on-exit=./emulator-data",
     "seed": "node scripts/seed-firestore.mjs",
     "provision:storage": "node scripts/provision-firebase-storage-cli.cjs",

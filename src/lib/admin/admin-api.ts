@@ -1,6 +1,7 @@
 import { getFirebaseAuth } from "@/lib/firebase/config";
 import type { AdminStats } from "@/app/api/admin/stats/route";
 import type { AdminTransaction } from "@/app/api/admin/transactions/list/route";
+import type { OnlineStatus } from "@/types/firestore";
 
 async function getIdToken(): Promise<string> {
   const user = getFirebaseAuth().currentUser;
@@ -41,6 +42,16 @@ export interface AdminPlayer {
   banned: boolean;
   admin: boolean;
   superAdmin: boolean;
+  onlineStatus: OnlineStatus;
+  lastOnline: string | null;
+  /** True when the player has a live setup/active match session. */
+  inGame: boolean;
+  activeMatchId: string | null;
+  /** True when the player (or their party) is in matchmaking. */
+  inQueue: boolean;
+  queueMode: "casual" | "ranked" | "private" | "stake" | null;
+  /** Stake tier when queueMode is stake. */
+  queueStakePerPlayer: number | null;
   createdAt: string | null;
 }
 
@@ -82,7 +93,13 @@ export interface AdminWithdrawal {
   bundleId: string;
   coins: number;
   phpAmount: number;
+  payoutMethod: "gcash" | "maya" | "bank";
+  accountName: string;
+  accountNumber: string;
+  bankName: string | null;
+  /** @deprecated Prefer accountNumber */
   gcashNumber: string;
+  /** @deprecated Prefer accountName */
   gcashName: string;
   status: string;
   adminNote: string | null;

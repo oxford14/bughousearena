@@ -133,10 +133,13 @@ function AdminBottomNav() {
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   return (
-    <SidebarProvider defaultOpen>
+    <SidebarProvider
+      defaultOpen
+      className="h-svh max-h-svh overflow-hidden"
+    >
       <AdminDesktopSidebarGate />
-      <main className="flex min-h-svh flex-1 flex-col md:min-h-screen">
-        <header className="flex items-center gap-4 border-b border-primary/20 px-4 py-3">
+      <main className="flex h-svh max-h-svh min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center gap-4 border-b border-primary/20 px-4 py-3">
           <SidebarTrigger className="hidden cursor-pointer md:inline-flex" />
           <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
             <ShieldCheck className="h-5 w-5 shrink-0 text-primary" />
@@ -157,7 +160,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <ProfileMenu />
           </div>
         </header>
-        <div className="flex-1 overflow-auto p-4 pb-24 md:p-6 md:pb-6">
+        <div className="no-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-4 pb-24 md:p-6 md:pb-6">
           {children}
         </div>
       </main>

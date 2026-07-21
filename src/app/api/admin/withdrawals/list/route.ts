@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifySuperAdminRequest } from "@/lib/server/verify-super-admin";
 import type { AdminWithdrawal } from "@/lib/admin/admin-api";
 
@@ -7,7 +8,14 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    await verifySuperAdminRequest(request);
+    const { uid } = await verifySuperAdminRequest(request);
+
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
     const db = getAdminDb();
     const url = new URL(request.url);
     const status = url.searchParams.get("status") ?? "pending";
@@ -41,6 +49,12 @@ export async function GET(request: Request) {
     const withdrawals: AdminWithdrawal[] = snap.docs.map((doc) => {
       const data = doc.data();
       const user = userMap.get(data.uid) ?? { displayName: "Player", email: null };
+      const accountNumber = String(data.accountNumber ?? data.gcashNumber ?? "");
+      const accountName = String(data.accountName ?? data.gcashName ?? "");
+      const payoutMethod =
+        data.payoutMethod === "maya" || data.payoutMethod === "bank"
+          ? data.payoutMethod
+          : "gcash";
       return {
         id: doc.id,
         uid: data.uid,
@@ -49,8 +63,12 @@ export async function GET(request: Request) {
         bundleId: data.bundleId,
         coins: data.coins,
         phpAmount: data.phpAmount,
-        gcashNumber: data.gcashNumber,
-        gcashName: data.gcashName,
+        payoutMethod,
+        accountName,
+        accountNumber,
+        bankName: (data.bankName as string | null | undefined) ?? null,
+        gcashNumber: accountNumber,
+        gcashName: accountName,
         status: data.status,
         adminNote: data.adminNote ?? null,
         paymongoTransferId: data.paymongoTransferId ?? null,

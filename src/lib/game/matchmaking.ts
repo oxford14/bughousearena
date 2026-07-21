@@ -22,6 +22,7 @@ import {
   serializeMatchPlayer,
 } from "@/lib/firebase/firestore-write";
 import type {
+  ChessGameType,
   MatchMode,
   MatchPlayer,
   MatchmakingEntry,
@@ -30,13 +31,25 @@ import type {
   PrivateRoom,
   UserProfile,
 } from "@/types/firestore";
-import { assignPlayersToBoards, createInitialBoards } from "./board-state";
+import {
+  assignPlayersToBoards,
+  assignTwoPlayersToSingleBoard,
+  createInitialBoardsForGameType,
+} from "./board-state";
 import { createSetupEndsTimestamp } from "./match-setup-service";
 import {
   assignPlayersFromUnits,
+  assignTwoPlayersFromUnits,
   averageRating,
   findQueueCombo,
 } from "./team-builder";
+import {
+  getRatingForGameType,
+  isSoloGameType,
+  normalizeGameType,
+  playersNeeded,
+  allowedMatchModes,
+} from "./game-types";
 import {
   BOT_BACKFILL_RETRY_MS,
   BOT_QUEUE_TIMEOUT_MS,
@@ -108,6 +121,7 @@ function normalizeQueueEntry(
     uid: data.uid as string,
     displayName: data.displayName as string,
     mode: data.mode as MatchMode,
+    gameType: normalizeGameType(data.gameType),
     rating: (data.rating as number) ?? averageRating(members),
     timestamp: data.timestamp as MatchmakingEntry["timestamp"],
     partyId: (data.partyId as string | null | undefined) ?? null,
@@ -134,13 +148,30 @@ export async function joinQueue(
   mode: MatchMode,
   party?: PartyDocument | null,
   timeControlSec?: number,
-  stakePerPlayer?: number
+  stakePerPlayer?: number,
+  gameType: ChessGameType = "bughouse"
 ): Promise<string> {
   await clearUserQueueEntries(user.uid);
 
-  const members = resolveQueueMembers(user, party);
+  const type = normalizeGameType(gameType);
 
-  if (party && party.leaderUid !== user.uid) {
+  if (!allowedMatchModes(type).includes(mode)) {
+    throw new Error(
+      mode === "ranked"
+        ? "Ranked is only available for Bughouse."
+        : "This match mode is not available for the selected game."
+    );
+  }
+
+  if (isSoloGameType(type)) {
+    if (party && party.members.length > 1) {
+      throw new Error("This mode is solo only — leave your party first.");
+    }
+  }
+
+  const members = resolveQueueMembers(user, party, type);
+
+  if (party && party.leaderUid !== user.uid && !isSoloGameType(type)) {
     throw new Error("Only the party leader can queue for matchmaking");
   }
 
@@ -153,9 +184,10 @@ export async function joinQueue(
     uid: user.uid,
     displayName: user.displayName,
     mode,
+    gameType: type,
     rating: averageRating(members),
     timestamp: serverTimestamp(),
-    partyId: party?.id ?? null,
+    partyId: isSoloGameType(type) ? null : party?.id ?? null,
     memberUids: members.map((m) => m.uid),
     members,
     timeControl,
@@ -211,6 +243,9 @@ export function subscribeToActiveMatch(
     (snap) => {
       const matchId = snap.data()?.matchId as string | undefined;
       if (matchId) onFound(matchId);
+    },
+    (error) => {
+      console.error("[matchmaking] subscribeToActiveMatch failed", error);
     }
   );
 }
@@ -221,8 +256,12 @@ export function subscribeToQueue(
   queueEntryId: string,
   onFound: (matchId: string, options?: { usedBots?: boolean }) => void,
   onBotBackfillFailed?: (error?: unknown) => void,
-  onQueueStats?: (stats: { liveHumans: number }) => void
+  onQueueStats?: (stats: { liveHumans: number }) => void,
+  gameType: ChessGameType = "bughouse"
 ): () => void {
+  const type = normalizeGameType(gameType);
+  const needSlots = playersNeeded(type);
+
   const q = query(
     collection(getFirebaseDb(), "matchmaking"),
     where("mode", "==", mode),
@@ -250,7 +289,7 @@ export function subscribeToQueue(
     if (mode === "stake") return;
     if (settled || creating) return;
     creating = true;
-    void tryCreateBotMatch(queueEntryId, mode)
+    void tryCreateBotMatch(queueEntryId, mode, type)
       .then((matchId) => {
         if (matchId) {
           finish(matchId, true);
@@ -284,7 +323,9 @@ export function subscribeToQueue(
   const unsub = onSnapshot(q, async (snap) => {
     if (creating || settled) return;
 
-    const entries = snap.docs.map((d) => normalizeQueueEntry(d.id, d.data()));
+    const entries = snap.docs
+      .map((d) => normalizeQueueEntry(d.id, d.data()))
+      .filter((e) => normalizeGameType(e.gameType) === type);
     const myEntry = entries.find((e) => e.id === queueEntryId);
     let pool = myEntry ? filterQueueByTimeControl(entries, myEntry) : entries;
     if (mode === "stake" && myEntry?.stakePerPlayer != null) {
@@ -293,11 +334,13 @@ export function subscribeToQueue(
     onQueueStats?.({ liveHumans: countLiveHumansInQueue(pool) });
     const liveHumans = countLiveHumansInQueue(pool);
 
-    const combo = myEntry ? findQueueCombo(pool, queueEntryId) : null;
+    const combo = myEntry
+      ? findQueueCombo(pool, queueEntryId, needSlots)
+      : null;
     if (combo) {
       creating = true;
       try {
-        const matchId = await createMatchFromQueue(combo, mode);
+        const matchId = await createMatchFromQueue(combo, mode, type);
         if (matchId) finish(matchId, false);
       } finally {
         creating = false;
@@ -306,10 +349,14 @@ export function subscribeToQueue(
     }
 
     const botFillReadyMs =
-      liveHumans === 2 ? HUMAN_PAIR_BOT_GRACE_MS : BOT_QUEUE_TIMEOUT_MS;
+      liveHumans === Math.max(1, needSlots - 1) && needSlots === 4
+        ? HUMAN_PAIR_BOT_GRACE_MS
+        : BOT_QUEUE_TIMEOUT_MS;
 
     if (myEntry && entryWaitMs(myEntry) >= botFillReadyMs) {
-      attemptBotBackfill(liveHumans === 2 ? "human-pair" : "timeout");
+      attemptBotBackfill(
+        liveHumans === needSlots - 1 ? "human-pair" : "timeout"
+      );
       return;
     }
 
@@ -338,15 +385,17 @@ export function subscribeToQueue(
 
 export async function tryCreateBotMatch(
   queueEntryId: string,
-  mode: MatchMode
+  mode: MatchMode,
+  gameType: ChessGameType = "bughouse"
 ): Promise<string | null> {
-  return tryCreateBotMatchBatch(queueEntryId, mode);
+  return tryCreateBotMatchBatch(queueEntryId, mode, gameType);
 }
 
-/** Greedily bundle queue entries (starting with the anchor) up to 4 slots. */
+/** Greedily bundle queue entries (starting with the anchor) up to needSlots. */
 function collectQueueEntriesForBotFill(
   entries: MatchmakingEntry[],
-  anchorId: string
+  anchorId: string,
+  needSlots: number
 ): MatchmakingEntry[] {
   const anchor = entries.find((e) => e.id === anchorId);
   if (!anchor) return [];
@@ -363,7 +412,7 @@ function collectQueueEntriesForBotFill(
 
   for (const entry of sorted) {
     if (entry.id === anchorId) continue;
-    if (slots + entry.members.length > 4) continue;
+    if (slots + entry.members.length > needSlots) continue;
 
     const selectedUids = new Set(selected.flatMap((e) => e.memberUids));
     const sharesMember = entry.memberUids.some((uid) => selectedUids.has(uid));
@@ -371,7 +420,7 @@ function collectQueueEntriesForBotFill(
 
     selected.push(entry);
     slots += entry.members.length;
-    if (slots >= 4) break;
+    if (slots >= needSlots) break;
   }
 
   return selected;
@@ -379,8 +428,11 @@ function collectQueueEntriesForBotFill(
 
 async function tryCreateBotMatchBatch(
   queueEntryId: string,
-  mode: MatchMode
+  mode: MatchMode,
+  gameType: ChessGameType = "bughouse"
 ): Promise<string | null> {
+  const type = normalizeGameType(gameType);
+  const needSlots = playersNeeded(type);
   const db = getFirebaseDb();
   const entryRef = doc(db, "matchmaking", queueEntryId);
   const entrySnap = await getDoc(entryRef);
@@ -389,15 +441,15 @@ async function tryCreateBotMatchBatch(
   const queueSnap = await getDocs(
     query(collection(db, "matchmaking"), where("mode", "==", mode), limit(50))
   );
-  const entries = queueSnap.docs.map((d) =>
-    normalizeQueueEntry(d.id, d.data() as Record<string, unknown>)
-  );
+  const entries = queueSnap.docs
+    .map((d) => normalizeQueueEntry(d.id, d.data() as Record<string, unknown>))
+    .filter((e) => normalizeGameType(e.gameType) === type);
 
   const anchorEntry = entries.find((e) => e.id === queueEntryId);
   if (!anchorEntry) return null;
   const pool = filterQueueByTimeControl(entries, anchorEntry);
 
-  const selected = collectQueueEntriesForBotFill(pool, queueEntryId);
+  const selected = collectQueueEntriesForBotFill(pool, queueEntryId, needSlots);
   if (selected.length === 0) return null;
 
   const seenHumanUids = new Set<string>();
@@ -412,15 +464,22 @@ async function tryCreateBotMatchBatch(
   if (humans.length === 0) return null;
 
   const totalSlots = selected.reduce((sum, e) => sum + e.members.length, 0);
-  if (totalSlots >= 4) return null;
+  if (totalSlots >= needSlots) return null;
 
-  const slotsNeeded = 4 - totalSlots;
+  const slotsNeeded = needSlots - totalSlots;
   if (slotsNeeded <= 0) return null;
 
   const bots = pickBots(slotsNeeded, humans);
-  const teammates = areQueueHumansTeammates(selected, humans);
-  const units = buildBotFillUnits(humans, bots, { teammates });
-  const players: MatchPlayer[] = assignPlayersFromUnits(units);
+  const teammates =
+    needSlots === 4 ? areQueueHumansTeammates(selected, humans) : false;
+  const units = buildBotFillUnits(humans, bots, {
+    teammates,
+    totalSlots: needSlots,
+  });
+  const players: MatchPlayer[] =
+    needSlots === 2
+      ? (assignTwoPlayersFromUnits(units) as MatchPlayer[])
+      : assignPlayersFromUnits(units);
   const queueEntryIds = selected.map((e) => e.id);
 
   try {
@@ -432,9 +491,12 @@ async function tryCreateBotMatchBatch(
 
       return persistMatchInTransaction(transaction, db, {
         mode,
+        gameType: type,
         players,
         queueEntryIds,
-        timeControlSec: resolveQueueTimeControl(selected[0] ?? { mode, timeControl: STANDARD_TIME_CONTROL_SEC }),
+        timeControlSec: resolveQueueTimeControl(
+          selected[0] ?? { mode, timeControl: STANDARD_TIME_CONTROL_SEC }
+        ),
       });
     });
   } catch (error) {
@@ -445,11 +507,17 @@ async function tryCreateBotMatchBatch(
 
 async function createMatchFromQueue(
   entries: MatchmakingEntry[],
-  mode: MatchMode
+  mode: MatchMode,
+  gameType: ChessGameType = "bughouse"
 ): Promise<string | null> {
+  const type = normalizeGameType(gameType);
+  const needSlots = playersNeeded(type);
   const db = getFirebaseDb();
   const units = entries.map((e) => e.members);
-  const players: MatchPlayer[] = assignPlayersFromUnits(units);
+  const players: MatchPlayer[] =
+    needSlots === 2
+      ? (assignTwoPlayersFromUnits(units) as MatchPlayer[])
+      : assignPlayersFromUnits(units);
 
   try {
     return await runTransaction(db, async (transaction) => {
@@ -463,6 +531,7 @@ async function createMatchFromQueue(
 
       return persistMatchInTransaction(transaction, db, {
         mode,
+        gameType: type,
         players,
         queueEntryIds: entries.map((e) => e.id),
         timeControlSec: resolveQueueTimeControl(entries[0]!),
@@ -479,19 +548,28 @@ function persistMatchInTransaction(
   db: ReturnType<typeof getFirebaseDb>,
   opts: {
     mode: MatchMode;
+    gameType?: ChessGameType;
     players: MatchPlayer[];
     queueEntryIds: string[];
     timeControlSec: number;
     stakePerPlayer?: number;
   }
 ): string {
-  const { mode, players, queueEntryIds, timeControlSec, stakePerPlayer } = opts;
+  const {
+    mode,
+    players,
+    queueEntryIds,
+    timeControlSec,
+    stakePerPlayer,
+  } = opts;
+  const gameType = normalizeGameType(opts.gameType);
   const humanUids = players.filter((p) => !p.isBot).map((p) => p.uid);
   const botUids = players.filter((p) => p.isBot).map((p) => p.uid);
 
   const matchRef = doc(collection(db, "matches"));
   transaction.set(matchRef, {
     mode,
+    gameType,
     status: "setup",
     players: players.map(serializeMatchPlayer),
     playerUids: humanUids,
@@ -508,7 +586,11 @@ function persistMatchInTransaction(
     ...(stakePerPlayer ? { stakePerPlayer } : {}),
   });
 
-  for (const board of createInitialBoards(players, timeControlSec)) {
+  for (const board of createInitialBoardsForGameType(
+    players,
+    gameType,
+    timeControlSec
+  )) {
     transaction.set(doc(matchRef, "boards", board.id), serializeBoard(board));
   }
 
@@ -520,6 +602,7 @@ function persistMatchInTransaction(
     transaction.set(doc(db, "users", uid, "session", "active"), {
       matchId: matchRef.id,
       mode,
+      gameType,
       createdAt: serverTimestamp(),
     });
   }
@@ -529,14 +612,20 @@ function persistMatchInTransaction(
 
 export async function createPrivateRoom(
   host: UserProfile,
-  mode: MatchMode = "private"
+  mode: MatchMode = "private",
+  gameType: ChessGameType = "bughouse"
 ): Promise<string> {
+  const type = normalizeGameType(gameType);
   const code = Math.random().toString(36).slice(2, 8).toUpperCase();
   await setDoc(doc(getFirebaseDb(), "privateRooms", code), {
     code,
     hostId: host.uid,
     hostDisplayName: host.displayName,
-    settings: { mode, timeControl: STANDARD_TIME_CONTROL_SEC },
+    settings: {
+      mode,
+      timeControl: STANDARD_TIME_CONTROL_SEC,
+      gameType: type,
+    },
     players: [
       {
         uid: host.uid,
@@ -544,7 +633,7 @@ export async function createPrivateRoom(
         photoURL: host.photoURL,
         boardId: "",
         team: 1,
-        rating: host.rating,
+        rating: getRatingForGameType(host, type),
       },
     ],
     status: "waiting",
@@ -564,6 +653,9 @@ export async function joinPrivateRoom(
   const room = roomSnap.data() as PrivateRoom;
   if (room.players.some((p) => p.uid === user.uid)) return room;
 
+  const type = normalizeGameType(room.settings.gameType);
+  const need = playersNeeded(type);
+
   const players = [
     ...room.players,
     {
@@ -572,14 +664,19 @@ export async function joinPrivateRoom(
       photoURL: user.photoURL,
       boardId: "",
       team: 1 as const,
-      rating: user.rating,
+      rating: getRatingForGameType(user, type),
     },
   ];
 
   await updateDoc(roomRef, { players });
 
-  if (players.length === 4) {
-    const matchId = await startPrivateMatch(code, players, room.settings.mode);
+  if (players.length === need) {
+    const matchId = await startPrivateMatch(
+      code,
+      players,
+      room.settings.mode,
+      type
+    );
     await updateDoc(roomRef, { status: "started", matchId });
   }
 
@@ -589,14 +686,20 @@ export async function joinPrivateRoom(
 async function startPrivateMatch(
   code: string,
   players: MatchPlayer[],
-  mode: MatchMode
+  mode: MatchMode,
+  gameType: ChessGameType = "bughouse"
 ): Promise<string> {
-  const assigned = assignPlayersToBoards(players);
+  const type = normalizeGameType(gameType);
+  const assigned =
+    type === "bughouse"
+      ? assignPlayersToBoards(players)
+      : assignTwoPlayersToSingleBoard(players);
   const matchRef = doc(collection(getFirebaseDb(), "matches"));
   const batch = writeBatch(getFirebaseDb());
 
   batch.set(matchRef, {
     mode,
+    gameType: type,
     status: "setup",
     players: assigned.map(serializeMatchPlayer),
     playerUids: assigned.filter((p) => !p.isBot).map((p) => p.uid),
@@ -604,7 +707,10 @@ async function startPrivateMatch(
     hasBots: assigned.some((p) => p.isBot),
     colorChoices: {},
     setupEndsAt: createSetupEndsTimestamp(),
-    teamClocks: { team1: STANDARD_TIME_CONTROL_SEC, team2: STANDARD_TIME_CONTROL_SEC },
+    teamClocks: {
+      team1: STANDARD_TIME_CONTROL_SEC,
+      team2: STANDARD_TIME_CONTROL_SEC,
+    },
     timeControl: STANDARD_TIME_CONTROL_SEC,
     winnerTeam: null,
     privateRoomCode: code,
@@ -613,7 +719,11 @@ async function startPrivateMatch(
     completedAt: null,
   });
 
-  for (const board of createInitialBoards(assigned, STANDARD_TIME_CONTROL_SEC)) {
+  for (const board of createInitialBoardsForGameType(
+    assigned,
+    type,
+    STANDARD_TIME_CONTROL_SEC
+  )) {
     batch.set(doc(matchRef, "boards", board.id), serializeBoard(board));
   }
 

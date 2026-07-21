@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb } from "@/lib/firebase-admin";
 import { checkRedeemEligibility } from "@/lib/wallet/redeem-server";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -8,12 +9,14 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
-    const authUser = await getAdminAuth().getUser(uid);
-    const result = await checkRedeemEligibility(
-      getAdminDb(),
+
+    const limited = await enforceApiRateLimits(request, {
       uid,
-      authUser.emailVerified
-    );
+      tier: "redeemEligibility",
+    });
+    if (limited) return limited;
+
+    const result = await checkRedeemEligibility(getAdminDb(), uid);
     return NextResponse.json(result);
   } catch (error) {
     const message =

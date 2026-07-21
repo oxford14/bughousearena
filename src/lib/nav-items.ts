@@ -8,6 +8,7 @@ import {
   DoorOpen,
   BookOpen,
   Banknote,
+  MessagesSquare,
   type LucideIcon,
 } from "lucide-react";
 
@@ -21,6 +22,7 @@ export interface AppNavItem {
 export const appNavItems: AppNavItem[] = [
   { href: "/app/home", label: "Home", shortLabel: "Home", icon: Home },
   { href: "/app/lobby", label: "Arena", shortLabel: "Arena", icon: Swords },
+  { href: "/app/chat", label: "World Chat", shortLabel: "Chat", icon: MessagesSquare },
   { href: "/app/tournaments", label: "Tournaments", shortLabel: "Events", icon: Trophy },
   { href: "/app/redeem", label: "Redeem", shortLabel: "Redeem", icon: Banknote },
   { href: "/app/private", label: "Private Room", shortLabel: "Private", icon: DoorOpen },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Chess, type Square } from "chess.js";
+import { type Square } from "chess.js";
 import { Mic, MicOff, Flag } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -18,13 +18,17 @@ import type { BoardDocument, MatchDocument } from "@/types/firestore";
 import {
   canDropPiece,
   getMirrorSeats,
-  getSeatColor,
+  resolvePlayingColor,
   type BoardSeatId,
   type PieceSymbol,
 } from "@/lib/game/bughouse-engine";
 import { validateDrop, validateMove } from "@/lib/game/move-validator";
 import { submitMove, resignMatch } from "@/lib/game/matchmaking";
 import { formatTimeControl, matchTimeControlSeconds } from "@/lib/game/time-control";
+import {
+  needsPawnPromotion,
+  type PendingPromotion,
+} from "@/lib/game/promotion";
 import { VoiceChatManager } from "@/lib/voice/webrtc";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
@@ -39,25 +43,11 @@ import { MatchBoardSlot } from "@/components/game/match-board-slot";
 import { BoardThemeSelector } from "@/components/arena/board-theme-selector";
 import { PieceSetSelector } from "@/components/arena/piece-set-selector";
 import { MatchTeamChatDock } from "@/components/game/match-team-chat-dock";
+import { PromotionPickerDialog } from "@/components/game/promotion-picker-dialog";
 
 interface BughouseArenaProps {
   match: MatchDocument;
   boards: BoardDocument[];
-}
-
-function inferPromotion(
-  fen: string,
-  sourceSquare: string,
-  targetSquare: string,
-  seatColor: "w" | "b"
-): PieceSymbol | undefined {
-  const board = new Chess(fen);
-  const piece = board.get(sourceSquare as Square);
-  if (!piece || piece.type !== "p") return undefined;
-  const rank = targetSquare[1];
-  if (seatColor === "w" && rank === "8") return "q";
-  if (seatColor === "b" && rank === "1") return "q";
-  return undefined;
 }
 
 export function BughouseArena({ match, boards }: BughouseArenaProps) {
@@ -66,6 +56,8 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   const [muted, setMuted] = useState(false);
   const [resignOpen, setResignOpen] = useState(false);
   const [resigning, setResigning] = useState(false);
+  const [pendingPromotion, setPendingPromotion] =
+    useState<PendingPromotion | null>(null);
   const [voiceManager, setVoiceManager] = useState<VoiceChatManager | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(
     new Map()
@@ -167,19 +159,19 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
     }
   }, [displayBoards, play]);
 
-  const handleMoveSync = useCallback(
-    (boardId: string, sourceSquare: string, targetSquare: string): boolean => {
+  const commitMove = useCallback(
+    (
+      boardId: string,
+      sourceSquare: string,
+      targetSquare: string,
+      seatColor: "w" | "b",
+      promotion?: PieceSymbol
+    ): boolean => {
       if (!user) return false;
       const board = displayBoards.find((b) => b.id === boardId);
-      const isMySeat =
-        board &&
-        (board.id === myPlayer?.boardId || board.playerUid === user.uid);
-      if (!isMySeat) return false;
-      if (board.boardStatus && board.boardStatus !== "active") return false;
+      if (!board) return false;
 
-      const seatColor = getSeatColor(boardId as BoardSeatId);
       const uci = `${sourceSquare}${targetSquare}`;
-      const promotion = inferPromotion(board.fen, sourceSquare, targetSquare, seatColor);
       const validation = validateMove(board.fen, uci, seatColor, promotion);
       if (!validation.valid) return false;
 
@@ -188,16 +180,63 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       localMoveBoardRef.current = boardId;
       play(validation.capturedPiece ? "gameCapture" : "gameMove");
 
-      void submitMove(match.id, boardId, user.uid, uci, undefined, undefined, promotion).catch(
-        () => {
-          clearOptimistic();
-          toast.error("Move could not be saved. Try again.");
-        }
-      );
+      void submitMove(
+        match.id,
+        boardId,
+        user.uid,
+        uci,
+        undefined,
+        undefined,
+        promotion
+      ).catch(() => {
+        clearOptimistic();
+        toast.error("Move could not be saved. Try again.");
+      });
 
       return true;
     },
-    [applyOptimistic, clearOptimistic, displayBoards, match.id, myPlayer?.boardId, play, user]
+    [applyOptimistic, clearOptimistic, displayBoards, match.id, play, user]
+  );
+
+  const handleMoveSync = useCallback(
+    (boardId: string, sourceSquare: string, targetSquare: string): boolean => {
+      if (!user) return false;
+      const board = displayBoards.find((b) => b.id === boardId);
+      const isMySeat =
+        board &&
+        (board.id === myPlayer?.boardId || board.playerUid === user.uid);
+      if (!isMySeat || !board) return false;
+      if (board.boardStatus && board.boardStatus !== "active") return false;
+
+      const seatColor = resolvePlayingColor(
+        boardId as BoardSeatId,
+        myPlayer,
+        board
+      );
+
+      if (needsPawnPromotion(board.fen, sourceSquare, targetSquare, seatColor)) {
+        setPendingPromotion({
+          boardId,
+          from: sourceSquare,
+          to: targetSquare,
+          seatColor,
+        });
+        return false;
+      }
+
+      return commitMove(boardId, sourceSquare, targetSquare, seatColor);
+    },
+    [commitMove, displayBoards, myPlayer, user]
+  );
+
+  const handlePromotionSelect = useCallback(
+    (piece: PieceSymbol) => {
+      if (!pendingPromotion) return;
+      const { boardId, from, to, seatColor } = pendingPromotion;
+      setPendingPromotion(null);
+      commitMove(boardId, from, to, seatColor, piece);
+    },
+    [commitMove, pendingPromotion]
   );
 
   const handleDropSync = useCallback(
@@ -216,7 +255,11 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       const reserve = board.captured as PieceSymbol[];
       if (!canDropPiece(reserve, dropPiece)) return false;
 
-      const seatColor = getSeatColor(boardId as BoardSeatId);
+      const seatColor = resolvePlayingColor(
+        boardId as BoardSeatId,
+        myPlayer,
+        board
+      );
       const validation = validateDrop(board.fen, dropPiece, square, seatColor, reserve);
       if (!validation.valid) return false;
 
@@ -234,7 +277,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
       setSelectedPiece(null);
       return true;
     },
-    [applyOptimistic, clearOptimistic, displayBoards, match.id, myPlayer?.boardId, play, selectedPiece, user]
+    [applyOptimistic, clearOptimistic, displayBoards, match.id, myPlayer, play, selectedPiece, user]
   );
 
   const handleResign = useCallback(async () => {
@@ -352,6 +395,12 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PromotionPickerDialog
+        pending={pendingPromotion}
+        onSelect={handlePromotionSelect}
+        onCancel={() => setPendingPromotion(null)}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_minmax(240px,280px)] gap-4 max-w-6xl mx-auto">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

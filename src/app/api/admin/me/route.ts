@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 import { isSuperAdminEmail } from "@/lib/admin/super-admins";
 
@@ -7,7 +8,10 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   try {
-    const { email } = await verifyAuthRequest(request);
+    const { uid, email } = await verifyAuthRequest(request);
+    const limited = await enforceApiRateLimits(request, { uid });
+    if (limited) return limited;
+
     const decoded = await getAdminAuth().verifyIdToken(
       request.headers.get("Authorization")!.slice(7)
     );

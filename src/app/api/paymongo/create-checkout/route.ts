@@ -1,26 +1,19 @@
 import { NextResponse } from "next/server";
-import { PRODUCTION_APP_ORIGIN } from "@/lib/app-config";
 import { getCoinPack } from "@/lib/shop/coin-packs";
 import { createPaymongoCheckoutSession } from "@/lib/paymongo";
 import {
   attachCheckoutSessionToPurchase,
   createPendingCoinPurchase,
 } from "@/lib/paymongo-process-coin-checkout";
+import { getSafeAppOrigin } from "@/lib/server/app-origin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
+import {
+  packIdBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
-
-function getAppOrigin(request: Request): string {
-  const origin = request.headers.get("origin");
-  if (origin) return origin;
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
-  }
-  if (process.env.NODE_ENV === "production") {
-    return PRODUCTION_APP_ORIGIN;
-  }
-  return "http://localhost:3000";
-}
 
 export async function POST(request: Request) {
   try {
@@ -30,11 +23,21 @@ export async function POST(request: Request) {
     }
 
     const { uid, email, name } = await verifyAuthRequest(request);
-    const { packId } = (await request.json()) as { packId?: string };
 
-    if (!packId || typeof packId !== "string") {
-      throw new Error("packId is required.");
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "topupCreate",
+    });
+    if (limited) return limited;
+
+    const parsed = packIdBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: zodErrorMessage(parsed.error) },
+        { status: 400 }
+      );
     }
+    const { packId } = parsed.data;
 
     const pack = getCoinPack(packId);
     if (!pack) {
@@ -55,7 +58,7 @@ export async function POST(request: Request) {
         referenceNumber,
         uid,
         packId: pack.id,
-        origin: getAppOrigin(request),
+        origin: getSafeAppOrigin(request),
         billingEmail: email,
         billingName: name,
       });

@@ -1,15 +1,26 @@
-import type { MatchmakingMember, PartyDocument, UserProfile } from "@/types/firestore";
+import type {
+  ChessGameType,
+  MatchmakingMember,
+  PartyDocument,
+  UserProfile,
+} from "@/types/firestore";
+import { getRatingForGameType, normalizeGameType } from "./game-types";
 
-function toMatchmakingMember(user: UserProfile): MatchmakingMember {
+function toMatchmakingMember(
+  user: UserProfile,
+  gameType: ChessGameType
+): MatchmakingMember {
   return {
     uid: user.uid,
     displayName: user.displayName,
     photoURL: user.photoURL,
-    rating: user.rating,
+    rating: getRatingForGameType(user, gameType),
   };
 }
 
-function toMatchmakingMemberFromParty(m: PartyDocument["members"][number]): MatchmakingMember {
+function toMatchmakingMemberFromParty(
+  m: PartyDocument["members"][number]
+): MatchmakingMember {
   return {
     uid: m.uid,
     displayName: m.displayName,
@@ -21,9 +32,17 @@ function toMatchmakingMemberFromParty(m: PartyDocument["members"][number]): Matc
 /** Only the queuing player is included; party partners must opt in via readyUids. */
 export function resolveQueueMembers(
   user: UserProfile,
-  party?: PartyDocument | null
+  party?: PartyDocument | null,
+  gameType: ChessGameType = "bughouse"
 ): MatchmakingMember[] {
-  const self = toMatchmakingMember(user);
+  const type = normalizeGameType(gameType);
+  const self = toMatchmakingMember(user, type);
+
+  // 1v1 / solo modes never queue with a party.
+  if (type !== "bughouse") {
+    return [self];
+  }
+
   if (!party || party.members.length <= 1) {
     return [self];
   }

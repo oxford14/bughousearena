@@ -5,6 +5,7 @@ import {
   processPaidQrphIntent,
 } from "@/lib/paymongo-process-coin-checkout";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import {
   markRedemptionFailedByTransfer,
   markRedemptionPaidByTransfer,
@@ -65,6 +66,9 @@ function extractPaymentIntentId(payload: Record<string, unknown>): string | null
 }
 
 export async function POST(request: Request) {
+  const limited = await enforceApiRateLimits(request, { tier: "webhook" });
+  if (limited) return limited;
+
   const rawBody = await request.text();
   const webhookSecret = process.env.PAYMONGO_WEBHOOK_SECRET;
   const secretKey = process.env.PAYMONGO_SECRET_KEY;
@@ -91,7 +95,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true, skipped: eventType });
   }
 
-  if (webhookSecret) {
+  if (!webhookSecret) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[PayMongo Webhook] PAYMONGO_WEBHOOK_SECRET not set — rejecting in production"
+      );
+      return NextResponse.json(
+        { error: "Webhook secret not configured." },
+        { status: 500 }
+      );
+    }
+    console.warn(
+      "[PayMongo Webhook] PAYMONGO_WEBHOOK_SECRET not set — skipping signature check (non-production)"
+    );
+  } else {
     const signature = request.headers.get("paymongo-signature");
     const valid = verifyPaymongoSignature(
       rawBody,
@@ -103,10 +120,6 @@ export async function POST(request: Request) {
       console.error("[PayMongo Webhook] Invalid signature");
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     }
-  } else {
-    console.warn(
-      "[PayMongo Webhook] PAYMONGO_WEBHOOK_SECRET not set — skipping signature check"
-    );
   }
 
   const shouldProcess = await markEventProcessed(eventId);

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
-import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb } from "@/lib/firebase-admin";
+import { createRedemptionRequest } from "@/lib/wallet/redeem-server";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import {
-  checkRedeemEligibility,
-  createRedemptionRequest,
-} from "@/lib/wallet/redeem-server";
+  redeemRequestBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -11,28 +13,40 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
-    const authUser = await getAdminAuth().getUser(uid);
-    const body = (await request.json()) as {
-      bundleId?: string;
-      gcashNumber?: string;
-      gcashName?: string;
-    };
 
-    if (!body.bundleId || !body.gcashNumber || !body.gcashName) {
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "redeemRequest",
+    });
+    if (limited) return limited;
+
+    const parsed = redeemRequestBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "bundleId, gcashNumber, and gcashName are required." },
+        { error: zodErrorMessage(parsed.error) },
         { status: 400 }
       );
     }
+    const { bundleId, gcashNumber, gcashName, bankName } = parsed.data;
+    const payoutMethod = parsed.data.payoutMethod;
+    const accountName = (
+      parsed.data.accountName ??
+      gcashName ??
+      ""
+    ).trim();
+    const accountNumber = (
+      parsed.data.accountNumber ??
+      gcashNumber ??
+      ""
+    ).trim();
 
-    const result = await createRedemptionRequest(
-      getAdminDb(),
-      uid,
-      body.bundleId,
-      body.gcashNumber,
-      body.gcashName,
-      authUser.emailVerified
-    );
+    const result = await createRedemptionRequest(getAdminDb(), uid, {
+      bundleId,
+      payoutMethod,
+      accountName,
+      accountNumber,
+      bankName,
+    });
     return NextResponse.json(result);
   } catch (error) {
     const message =

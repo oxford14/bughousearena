@@ -33,15 +33,29 @@ export function LandingHero() {
           transition={{ duration: 0.6 }}
         >
           <p className="mb-4 text-sm uppercase tracking-[0.3em] text-secondary neon-text">
-            Competitive 4-Player Chess
+            Bughouse Chess &amp; Variants
           </p>
           <h1 className="font-heading text-5xl md:text-7xl font-bold mb-6 neon-glow">
             Bughouse Arena
           </h1>
-          <p className="mx-auto max-w-2xl text-lg text-muted-foreground mb-10">
-            Drop captured pieces on your partner&apos;s board. Coordinate in real time.
-            Climb ranked ladders, join Houses, and dominate the arena.
+          <p className="mx-auto max-w-2xl text-lg text-muted-foreground mb-6">
+            The ultimate platform for Bughouse Chess and chess variants. Team up,
+            drop pieces, climb ladders — or play Standard, Crazyhouse, and Atomic 1v1.
           </p>
+          <ul className="mx-auto mb-10 flex flex-wrap justify-center gap-3 text-sm">
+            <li className="rounded-full border border-primary/40 bg-primary/15 px-3 py-1 text-primary">
+              ★ Bughouse 2v2 · Featured
+            </li>
+            <li className="rounded-full border border-white/15 px-3 py-1 text-muted-foreground">
+              Standard Chess
+            </li>
+            <li className="rounded-full border border-white/15 px-3 py-1 text-muted-foreground">
+              Crazyhouse
+            </li>
+            <li className="rounded-full border border-white/15 px-3 py-1 text-muted-foreground">
+              Atomic
+            </li>
+          </ul>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link
               href="/app/loader"
@@ -52,7 +66,7 @@ export function LandingHero() {
               )}
             >
               <Play className="mr-2 h-5 w-5" />
-              Play Game
+              Play Now
             </Link>
             <Link
               href="/login"

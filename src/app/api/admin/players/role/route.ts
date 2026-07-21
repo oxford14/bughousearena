@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifySuperAdminRequest } from "@/lib/server/verify-super-admin";
 import { isSuperAdminEmail } from "@/lib/admin/super-admins";
 
@@ -7,7 +8,13 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    await verifySuperAdminRequest(request);
+    const { uid: adminUid } = await verifySuperAdminRequest(request);
+    const limited = await enforceApiRateLimits(request, {
+      uid: adminUid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
     const { uid, admin } = (await request.json()) as {
       uid?: string;
       admin?: boolean;

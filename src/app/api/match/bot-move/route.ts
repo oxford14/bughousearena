@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 import { submitValidatedMoveAdmin } from "@/lib/game/match-move-admin";
 import type { PieceSymbol } from "@/lib/game/bughouse-engine";
@@ -9,6 +10,12 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "botMove",
+    });
+    if (limited) return limited;
+
     const body = (await request.json()) as {
       matchId?: string;
       boardId?: string;

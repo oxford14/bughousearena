@@ -14,6 +14,7 @@ import {
   where,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/config";
+import { resolveOnlineStatus } from "@/lib/social/presence";
 import type {
   DirectMessage,
   FriendEntry,
@@ -83,6 +84,10 @@ export function subscribeToFriends(
       callback(
         snap.docs.map((d) => ({ ...d.data() }) as FriendEntry)
       );
+    },
+    (error) => {
+      console.error("[friends] subscribeToFriends failed", error);
+      callback([]);
     }
   );
 }
@@ -102,6 +107,10 @@ export function subscribeToFriendRequests(
           (d) => ({ id: d.id, ...d.data() }) as FriendRequest
         )
       );
+    },
+    (error) => {
+      console.error("[friends] subscribeToFriendRequests failed", error);
+      callback([]);
     }
   );
 }
@@ -138,6 +147,10 @@ export function subscribeToMessages(
           (d) => ({ id: d.id, ...d.data() }) as DirectMessage
         )
       );
+    },
+    (error) => {
+      console.error("[friends] subscribeToMessages failed", error);
+      callback([]);
     }
   );
 }
@@ -225,12 +238,17 @@ export async function searchUsersByDisplayName(
       if (!data.displayName.toLowerCase().includes(needle)) continue;
 
       seen.add(d.id);
+      const lastOnline =
+        data.lastOnline &&
+        typeof (data.lastOnline as { toDate?: () => Date }).toDate === "function"
+          ? (data.lastOnline as { toDate: () => Date }).toDate()
+          : null;
       results.push({
         uid: d.id,
         displayName: data.displayName,
         photoURL: data.photoURL,
         rating: data.rating ?? 1200,
-        onlineStatus: data.onlineStatus ?? "offline",
+        onlineStatus: resolveOnlineStatus(data.onlineStatus, lastOnline),
       });
 
       if (results.length >= limit) break;

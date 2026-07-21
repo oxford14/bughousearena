@@ -3,6 +3,8 @@ import type { BoardId } from "./bughouse-rules";
 
 export type QueueUnitMember = MatchmakingMember;
 
+const MAIN_BOARD_ID = "main";
+
 function shuffle<T>(items: T[]): T[] {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
@@ -16,7 +18,48 @@ export function slotCount(members: QueueUnitMember[]): number {
   return members.length;
 }
 
-/** Assign 4 players to official Bughouse seats (T1: White Alpha + Black Bravo, T2: Black Alpha + White Bravo). */
+function mapPlayer(
+  member: QueueUnitMember,
+  boardId: string,
+  team: 1 | 2,
+  playerColor?: "w" | "b"
+) {
+  const base = {
+    uid: member.uid,
+    displayName: member.displayName,
+    photoURL: member.photoURL,
+    boardId,
+    team,
+    rating: member.rating,
+    ...(playerColor ? { playerColor } : {}),
+  };
+  if (member.isBot) {
+    return {
+      ...base,
+      isBot: true as const,
+      botSkill: member.botSkill,
+      rankTier: member.rankTier,
+    };
+  }
+  return base;
+}
+
+/** Assign 2 players to a single board (White = team 1, Black = team 2). */
+export function assignTwoPlayersFromUnits(
+  units: QueueUnitMember[][]
+): ReturnType<typeof mapPlayer>[] {
+  const flat = units.flat();
+  if (flat.length !== 2) {
+    throw new Error(`Expected 2 players, got ${flat.length}`);
+  }
+  const [a, b] = shuffle(flat);
+  return [
+    mapPlayer(a!, MAIN_BOARD_ID, 1, "w"),
+    mapPlayer(b!, MAIN_BOARD_ID, 2, "b"),
+  ];
+}
+
+/** Assign 4 players to official Bughouse seats. */
 export function assignPlayersFromUnits(
   units: QueueUnitMember[][]
 ): {
@@ -51,47 +94,37 @@ export function assignPlayersFromUnits(
     throw new Error("Unsupported queue unit composition");
   }
 
-  const mapPlayer = (
-    member: QueueUnitMember,
-    boardId: BoardId,
-    team: 1 | 2
-  ) => {
-    const base = {
-      uid: member.uid,
-      displayName: member.displayName,
-      photoURL: member.photoURL,
-      boardId,
-      team,
-      rating: member.rating,
-    };
-    if (member.isBot) {
-      return {
-        ...base,
-        isBot: true as const,
-        botSkill: member.botSkill,
-        rankTier: member.rankTier,
-      };
-    }
-    return base;
-  };
-
   return [
-    mapPlayer(team1[0]!, "board-a", 1),
-    mapPlayer(team1[1]!, "board-d", 1),
-    mapPlayer(team2[0]!, "board-c", 2),
-    mapPlayer(team2[1]!, "board-b", 2),
+    mapPlayer(team1[0]!, "board-a", 1) as ReturnType<
+      typeof assignPlayersFromUnits
+    >[number],
+    mapPlayer(team1[1]!, "board-d", 1) as ReturnType<
+      typeof assignPlayersFromUnits
+    >[number],
+    mapPlayer(team2[0]!, "board-c", 2) as ReturnType<
+      typeof assignPlayersFromUnits
+    >[number],
+    mapPlayer(team2[1]!, "board-b", 2) as ReturnType<
+      typeof assignPlayersFromUnits
+    >[number],
   ];
 }
 
-/** Find queue entries that fill 4 slots and include the given entry id. */
-export function findQueueCombo<T extends { id: string; members: QueueUnitMember[] }>(
+/** Find queue entries that fill `needSlots` and include the given entry id. */
+export function findQueueCombo<
+  T extends { id: string; members: QueueUnitMember[] },
+>(
   entries: T[],
-  mustIncludeEntryId: string
+  mustIncludeEntryId: string,
+  needSlots = 4
 ): T[] | null {
   const anchor = entries.find((e) => e.id === mustIncludeEntryId);
   if (!anchor) return null;
 
-  const need = 4 - anchor.members.length;
+  const need = needSlots - anchor.members.length;
+  if (need < 0) return null;
+  if (need === 0) return [anchor];
+
   const rest = entries.filter((e) => e.id !== mustIncludeEntryId);
 
   function search(

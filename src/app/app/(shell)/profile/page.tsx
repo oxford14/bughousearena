@@ -104,7 +104,20 @@ export default function ProfilePage() {
               <div className="flex items-center gap-2 mt-1">
                 <Image src={getRankAssetPath(tier)} alt="" width={20} height={20} />
                 <Badge>{getRankLabel(tier)}</Badge>
-                <span className="text-sm text-muted-foreground">{profile?.rating} ELO</span>
+                <span className="text-sm text-muted-foreground">
+                  Bughouse {profile?.rating} ELO
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap justify-center sm:justify-start gap-2 text-xs text-muted-foreground">
+                <span className="rounded-md border border-primary/20 px-2 py-1">
+                  Standard {profile?.standardRating ?? 1200}
+                </span>
+                <span className="rounded-md border border-primary/20 px-2 py-1">
+                  Crazyhouse {profile?.crazyhouseRating ?? 1200}
+                </span>
+                <span className="rounded-md border border-primary/20 px-2 py-1">
+                  Atomic {profile?.atomicRating ?? 1200}
+                </span>
               </div>
             </div>
           </div>

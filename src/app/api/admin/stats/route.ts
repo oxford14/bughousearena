@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AggregateField } from "firebase-admin/firestore";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifySuperAdminRequest } from "@/lib/server/verify-super-admin";
 
 export const runtime = "nodejs";
@@ -18,7 +19,13 @@ export interface AdminStats {
 
 export async function GET(request: Request) {
   try {
-    await verifySuperAdminRequest(request);
+    const { uid } = await verifySuperAdminRequest(request);
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
     const db = getAdminDb();
 
     const usersCol = db.collection("users");

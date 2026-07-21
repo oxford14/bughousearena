@@ -55,16 +55,19 @@ export function joinStakeQueue(stakeAmount: number, queueEntryId: string) {
   });
 }
 
-export function leaveStakeQueue() {
+export function leaveStakeQueue(queueEntryId?: string) {
   return walletFetch<{ refunded: boolean }>("/api/stake/leave", {
     method: "POST",
+    body: JSON.stringify(queueEntryId ? { queueEntryId } : {}),
   });
 }
 
 export function requestRedemption(input: {
   bundleId: string;
-  gcashNumber: string;
-  gcashName: string;
+  payoutMethod: "gcash" | "maya" | "bank";
+  accountName: string;
+  accountNumber: string;
+  bankName?: string;
 }) {
   return walletFetch<{ requestId: string; balanceAfter: number }>(
     "/api/redeem/request",

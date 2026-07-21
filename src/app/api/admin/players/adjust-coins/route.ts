@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { creditCoins, debitCoins, WalletError } from "@/lib/wallet/wallet-server";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
+import {
+  adjustCoinsBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifySuperAdminRequest } from "@/lib/server/verify-super-admin";
 
 export const runtime = "nodejs";
@@ -8,18 +13,21 @@ export const runtime = "nodejs";
 export async function POST(request: Request) {
   try {
     const { uid: adminUid } = await verifySuperAdminRequest(request);
-    const { uid, amount, reason } = (await request.json()) as {
-      uid?: string;
-      amount?: number;
-      reason?: string;
-    };
 
-    if (!uid || typeof amount !== "number" || !Number.isFinite(amount) || amount === 0) {
+    const limited = await enforceApiRateLimits(request, {
+      uid: adminUid,
+      tier: "admin",
+    });
+    if (limited) return limited;
+
+    const parsed = adjustCoinsBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
       return NextResponse.json(
-        { error: "uid and a non-zero amount are required." },
+        { error: zodErrorMessage(parsed.error) },
         { status: 400 }
       );
     }
+    const { uid, amount, reason } = parsed.data;
 
     const db = getAdminDb();
     const refId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;

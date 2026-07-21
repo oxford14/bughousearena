@@ -21,6 +21,7 @@ import {
   matchDurationSeconds,
 } from "@/lib/game/match-end";
 import {
+  BOARD_IDS,
   getPhysicalBoardLabelForSeat,
   type BoardSeatId,
 } from "@/lib/game/bughouse-engine";
@@ -32,10 +33,17 @@ import { getRankAssetPath, getRankTier } from "@/lib/game/elo";
 import { isBotUid } from "@/lib/game/bots";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
-import type { BoardDocument, MatchDocument } from "@/types/firestore";
+import type { BoardDocument, MatchDocument, MatchPlayer } from "@/types/firestore";
 import { cn } from "@/lib/utils";
 import { getStakeWinPayout } from "@/lib/wallet/stake-tiers";
 import { advanceTournamentMatch } from "@/lib/wallet/wallet-api";
+
+function playerBoardLabel(player: MatchPlayer): string {
+  if (BOARD_IDS.includes(player.boardId as BoardSeatId)) {
+    return getPhysicalBoardLabelForSeat(player.boardId as BoardSeatId);
+  }
+  return player.playerColor === "b" ? "Black" : "White";
+}
 
 interface MatchResultScreenProps {
   match: MatchDocument;
@@ -292,7 +300,7 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
                             ) : null}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {getPhysicalBoardLabelForSeat(player.boardId as BoardSeatId)} · {player.rating} rating
+                            {playerBoardLabel(player)} · {player.rating} rating
                           </p>
                         </div>
                         <Image
@@ -324,7 +332,7 @@ export function MatchResultScreen({ match, boards, userUid }: MatchResultScreenP
                           {player.displayName}
                           <span className="text-muted-foreground">
                             {" "}
-                            · {getPhysicalBoardLabelForSeat(player.boardId as BoardSeatId)}
+                            · {playerBoardLabel(player)}
                           </span>
                         </span>
                       </li>

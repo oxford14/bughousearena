@@ -31,6 +31,14 @@ import {
 } from "@/lib/game/bughouse-engine";
 import type { BoardDocument, MatchDocument, MatchEndReason } from "@/types/firestore";
 import { matchTimeControlSeconds } from "@/lib/game/time-control";
+import { normalizeGameType } from "@/lib/game/game-types";
+import {
+  applySingleBoardDrop,
+  applySingleBoardMove,
+  checkSingleBoardTimeForfeit,
+  SINGLE_BOARD_ID,
+  type PieceSymbol as SinglePieceSymbol,
+} from "@/lib/game/single-board-engine";
 
 export interface SubmitMoveParams {
   matchId: string;
@@ -231,17 +239,22 @@ function parseAction(
 }
 
 /**
- * Server-side Bughouse move validation and atomic board updates.
- *
- * Runs inside a Firestore transaction so concurrent moves on the two physical
- * boards (e.g. a human on Alpha and a bot on Bravo) re-read fresh state and
- * retry on conflict instead of clobbering each other's FEN/turn/reserve.
+ * Server-side move validation and atomic board updates.
  */
 export async function submitValidatedMove(
   params: SubmitMoveParams
 ): Promise<SubmitMoveResult> {
   const db = getFirebaseDb();
   const matchRef = doc(db, "matches", params.matchId);
+
+  // Peek game type without a full transaction first path for 1v1.
+  const peek = await getDoc(matchRef);
+  if (!peek.exists()) return { ok: false, error: "Match not found" };
+  const peekMatch = { id: peek.id, ...peek.data() } as MatchDocument;
+  if (normalizeGameType(peekMatch.gameType) !== "bughouse") {
+    return submitSingleBoardValidatedMove(params, peekMatch);
+  }
+
   const boardId = params.boardId as BoardSeatId;
 
   try {
@@ -381,6 +394,151 @@ export async function submitValidatedMove(
   }
 }
 
+async function submitSingleBoardValidatedMove(
+  params: SubmitMoveParams,
+  peekMatch: MatchDocument
+): Promise<SubmitMoveResult> {
+  const db = getFirebaseDb();
+  const matchRef = doc(db, "matches", params.matchId);
+  const boardRef = doc(
+    db,
+    "matches",
+    params.matchId,
+    "boards",
+    params.boardId || SINGLE_BOARD_ID
+  );
+  const gameType = normalizeGameType(peekMatch.gameType);
+
+  try {
+    const outcome = await runTransaction<SubmitMoveResult>(db, async (tx) => {
+      const matchSnap = await tx.get(matchRef);
+      if (!matchSnap.exists()) return { ok: false, error: "Match not found" };
+      const match = { id: matchSnap.id, ...matchSnap.data() } as MatchDocument;
+      if (match.status !== "active") {
+        return { ok: false, error: "Match is not active" };
+      }
+
+      const boardSnap = await tx.get(boardRef);
+      if (!boardSnap.exists()) return { ok: false, error: "Board not found" };
+      const board = { id: boardSnap.id, ...boardSnap.data() } as BoardDocument;
+
+      const player = match.players.find((p) => p.uid === params.playerId);
+      if (!player) return { ok: false, error: "Not in this match" };
+
+      const playerColor = player.playerColor ?? (player.team === 1 ? "w" : "b");
+      const nowMs = Date.now();
+
+      const timed = checkSingleBoardTimeForfeit(board, nowMs);
+      if (timed?.matchEnded && timed.winnerTeam && timed.board) {
+        tx.update(boardRef, serializeBoard(timed.board));
+        tx.update(
+          matchRef,
+          completeMatchUpdate(timed.winnerTeam, timed.endReason ?? "time_forfeit")
+        );
+        return { ok: false, error: "Clock expired" };
+      }
+
+      const isDrop =
+        params.move.includes("@") || params.move.startsWith("drop:");
+
+      let result;
+      if (isDrop) {
+        if (gameType !== "crazyhouse") {
+          return { ok: false, error: "Drops only allowed in Crazyhouse" };
+        }
+        let piece: SinglePieceSymbol;
+        let to: Square;
+        if (params.move.startsWith("drop:")) {
+          const [, rest] = params.move.split(":");
+          const [p, sq] = rest!.split("@");
+          piece = p as SinglePieceSymbol;
+          to = sq as Square;
+        } else {
+          const [p, sq] = params.move.split("@");
+          piece = p as SinglePieceSymbol;
+          to = sq as Square;
+        }
+        result = applySingleBoardDrop({
+          board,
+          playerId: params.playerId,
+          playerColor,
+          piece,
+          to,
+          nowMs,
+        });
+      } else {
+        result = applySingleBoardMove({
+          board,
+          gameType,
+          playerId: params.playerId,
+          playerColor,
+          move: params.move,
+          promotion: params.promotion as SinglePieceSymbol | undefined,
+          nowMs,
+        });
+      }
+
+      if (!result.ok || !result.board) {
+        return { ok: false, error: result.error ?? "Illegal move" };
+      }
+
+      tx.update(boardRef, serializeBoard(result.board));
+
+      const matchPatch: Record<string, unknown> = {};
+      if (!match.clocksStartedAtMs) {
+        matchPatch.clocksStartedAtMs = nowMs;
+      }
+      if (result.matchEnded && result.winnerTeam && result.endReason) {
+        Object.assign(
+          matchPatch,
+          completeMatchUpdate(result.winnerTeam, result.endReason)
+        );
+      } else if (result.matchEnded && result.winnerTeam) {
+        Object.assign(
+          matchPatch,
+          completeMatchUpdate(result.winnerTeam, "checkmate")
+        );
+      } else if (result.matchEnded) {
+        // Draw — mark completed without winner
+        Object.assign(matchPatch, {
+          status: "completed",
+          completedAt: serverTimestamp(),
+          winnerTeam: null,
+          endReason: "checkmate",
+        });
+      }
+
+      if (Object.keys(matchPatch).length > 0) {
+        tx.update(matchRef, matchPatch);
+      }
+
+      return { ok: true };
+    });
+
+    if (outcome.ok) {
+      try {
+        await addDoc(collection(db, "matches", params.matchId, "moves"), {
+          boardId: params.boardId || SINGLE_BOARD_ID,
+          playerId: params.playerId,
+          move: params.move,
+          validated: true,
+          createdAt: serverTimestamp(),
+        });
+      } catch (error) {
+        console.warn("[match-actions] move audit log failed", error);
+      }
+    }
+
+    return outcome;
+  } catch (error) {
+    console.warn("[match-actions] single-board move failed", error);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Move failed",
+    };
+  }
+}
+
 /** Sync clocks and end the match when a physical-board clock hits zero. */
 export async function submitTimeForfeit(matchId: string): Promise<void> {
   const ctx = await loadMatchContext(matchId);
@@ -388,6 +546,24 @@ export async function submitTimeForfeit(matchId: string): Promise<void> {
 
   const { match, boards } = ctx;
   if (match.status !== "active") return;
+
+  if (normalizeGameType(match.gameType) !== "bughouse") {
+    const board = boards.find((b) => b.id === SINGLE_BOARD_ID) ?? boards[0];
+    if (!board) return;
+    const timed = checkSingleBoardTimeForfeit(board);
+    if (!timed?.matchEnded || !timed.winnerTeam || !timed.board) return;
+    const batch = writeBatch(ctx.db);
+    batch.update(
+      doc(ctx.db, "matches", matchId, "boards", board.id),
+      serializeBoard(timed.board)
+    );
+    batch.update(
+      doc(ctx.db, "matches", matchId),
+      completeMatchUpdate(timed.winnerTeam, timed.endReason ?? "time_forfeit")
+    );
+    await batch.commit();
+    return;
+  }
 
   const snapshot = tickAllPhysicalClocks(loadSnapshotFromBoards(boards), Date.now());
   const endState = evaluateMatchEnd(snapshot);

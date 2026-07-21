@@ -5,6 +5,11 @@ import {
   attachPaymentIntentToPurchase,
   createPendingCoinPurchase,
 } from "@/lib/paymongo-process-coin-checkout";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
+import {
+  packIdBodySchema,
+  zodErrorMessage,
+} from "@/lib/server/schemas/api-bodies";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -17,11 +22,21 @@ export async function POST(request: Request) {
     }
 
     const { uid } = await verifyAuthRequest(request);
-    const { packId } = (await request.json()) as { packId?: string };
 
-    if (!packId || typeof packId !== "string") {
-      throw new Error("packId is required.");
+    const limited = await enforceApiRateLimits(request, {
+      uid,
+      tier: "topupCreate",
+    });
+    if (limited) return limited;
+
+    const parsed = packIdBodySchema.safeParse(await request.json());
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: zodErrorMessage(parsed.error) },
+        { status: 400 }
+      );
     }
+    const { packId } = parsed.data;
 
     const pack = getCoinPack(packId);
     if (!pack) {

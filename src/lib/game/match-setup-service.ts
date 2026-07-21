@@ -20,6 +20,9 @@ import {
   resolveTeamSeating,
 } from "@/lib/game/match-setup";
 import { BOARD_IDS, getSeatColor, type BoardSeatId } from "@/lib/game/bughouse-engine";
+import { SINGLE_BOARD_ID } from "@/lib/game/single-board-engine";
+import { normalizeGameType } from "@/lib/game/game-types";
+import { oppositeColor } from "@/lib/game/match-setup";
 import type {
   MatchDocument,
   MatchSetupChatMessage,
@@ -105,8 +108,42 @@ export async function finalizeMatchSetup(matchId: string): Promise<boolean> {
 
     const choices = match.colorChoices ?? {};
     const players = dedupePlayersByUid(match.players);
-    // Seat players on the board matching their chosen color (may swap boards).
-    const updatedPlayers = resolveTeamSeating(players, choices);
+    const gameType = normalizeGameType(match.gameType);
+
+    let updatedPlayers = players;
+    if (gameType === "bughouse") {
+      updatedPlayers = resolveTeamSeating(players, choices);
+    } else {
+      // 1v1: assign White/Black from choices (or random).
+      const [p0, p1] = players;
+      if (p0 && p1) {
+        let c0 = choices[p0.uid];
+        let c1 = choices[p1.uid];
+        if (c0 && !c1) c1 = oppositeColor(c0);
+        else if (!c0 && c1) c0 = oppositeColor(c1);
+        else if (!c0 && !c1) {
+          c0 = Math.random() < 0.5 ? "w" : "b";
+          c1 = oppositeColor(c0);
+        } else if (c0 && c1 && c0 === c1) {
+          c0 = Math.random() < 0.5 ? "w" : "b";
+          c1 = oppositeColor(c0);
+        }
+        updatedPlayers = [
+          {
+            ...p0,
+            boardId: SINGLE_BOARD_ID,
+            team: c0 === "w" ? 1 : 2,
+            playerColor: c0!,
+          },
+          {
+            ...p1,
+            boardId: SINGLE_BOARD_ID,
+            team: c1 === "w" ? 1 : 2,
+            playerColor: c1!,
+          },
+        ];
+      }
+    }
 
     transaction.update(matchRef, {
       status: "active",
@@ -118,16 +155,25 @@ export async function finalizeMatchSetup(matchId: string): Promise<boolean> {
       setupEndsAt: null,
     });
 
-    // Reassign each board's occupant (seats can swap) and pause clocks until
-    // the first move is played anywhere in the match.
-    for (const boardId of BOARD_IDS) {
-      const player = updatedPlayers.find((p) => p.boardId === boardId);
-      const boardRef = doc(db, "matches", matchId, "boards", boardId);
+    if (gameType === "bughouse") {
+      for (const boardId of BOARD_IDS) {
+        const player = updatedPlayers.find((p) => p.boardId === boardId);
+        const boardRef = doc(db, "matches", matchId, "boards", boardId);
+        transaction.update(boardRef, {
+          clockRunning: null,
+          clockUpdatedAtMs: null,
+          playerUid: player?.uid ?? "",
+          playerColor: player?.playerColor ?? getSeatColor(boardId as BoardSeatId),
+        });
+      }
+    } else {
+      const white = updatedPlayers.find((p) => p.playerColor === "w");
+      const boardRef = doc(db, "matches", matchId, "boards", SINGLE_BOARD_ID);
       transaction.update(boardRef, {
         clockRunning: null,
         clockUpdatedAtMs: null,
-        playerUid: player?.uid ?? "",
-        playerColor: player?.playerColor ?? getSeatColor(boardId as BoardSeatId),
+        playerUid: white?.uid ?? "",
+        playerColor: "w",
       });
     }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { LogOut, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -11,6 +11,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import { subscribeToFriends } from "@/lib/social/friends";
+import {
+  friendActivityLabel,
+  subscribeToFriendsPresence,
+  type FriendPresence,
+} from "@/lib/social/friend-presence";
 import {
   acceptPartyInvite,
   canQueueParty,
@@ -35,6 +40,9 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
   const { play, unlock } = useSound();
   const [party, setParty] = useState<(PartyDocument & { id: string }) | null>(null);
   const [friends, setFriends] = useState<FriendEntry[]>([]);
+  const [presenceByUid, setPresenceByUid] = useState<
+    Record<string, FriendPresence>
+  >({});
   const [invites, setInvites] = useState<PartyInvite[]>([]);
   const [busy, setBusy] = useState(false);
   const [invitingId, setInvitingId] = useState<string | null>(null);
@@ -48,6 +56,15 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
     if (!user) return;
     return subscribeToFriends(user.uid, setFriends);
   }, [user]);
+
+  const friendIds = useMemo(
+    () => friends.map((f) => f.friendId),
+    [friends]
+  );
+
+  useEffect(() => {
+    return subscribeToFriendsPresence(friendIds, setPresenceByUid);
+  }, [friendIds]);
 
   useEffect(() => {
     if (!user) return;
@@ -269,13 +286,21 @@ export function PartyPanel({ searching = false }: PartyPanelProps) {
                           <span
                             className={cn(
                               "h-2 w-2 shrink-0 rounded-full",
-                              friend.onlineStatus === "online"
-                                ? "bg-emerald-400"
-                                : friend.onlineStatus === "away"
-                                  ? "bg-amber-400"
-                                  : "bg-muted-foreground/40"
+                              (() => {
+                                const activity =
+                                  presenceByUid[friend.friendId]?.activity ??
+                                  "offline";
+                                if (activity === "in_match") return "bg-rose-400";
+                                if (activity === "in_queue") return "bg-sky-400";
+                                if (activity === "online") return "bg-emerald-400";
+                                if (activity === "away") return "bg-amber-400";
+                                return "bg-muted-foreground/40";
+                              })()
                             )}
-                            title={friend.onlineStatus}
+                            title={friendActivityLabel(
+                              presenceByUid[friend.friendId]?.activity ??
+                                "offline"
+                            )}
                           />
                         </div>
                         <Button

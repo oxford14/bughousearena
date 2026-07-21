@@ -5,10 +5,13 @@ import { useParams, useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BughouseArena } from "@/components/game/bughouse-arena";
+import { SingleBoardArena } from "@/components/game/single-board-arena";
 import { MatchResultScreen } from "@/components/game/match-result-screen";
 import { MatchSetupPhase } from "@/components/game/match-setup-phase";
+import { SingleBoardSetupPhase } from "@/components/game/single-board-setup-phase";
 import { subscribeToMatchAndBoards } from "@/lib/game/sync-manager";
 import { clearActiveMatchSession } from "@/lib/game/matchmaking";
+import { normalizeGameType } from "@/lib/game/game-types";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import type { BoardDocument, MatchDocument } from "@/types/firestore";
@@ -112,6 +115,8 @@ export default function MatchPage() {
   const inSetup = match.status === "setup";
   const isCompleted = match.status === "completed";
   const isParticipant = Boolean(user && match.playerUids?.includes(user.uid));
+  const gameType = normalizeGameType(match.gameType);
+  const isBughouse = gameType === "bughouse";
 
   if (isCompleted) {
     return (
@@ -122,11 +127,15 @@ export default function MatchPage() {
   return (
     <>
       {inSetup && isParticipant && user && profile ? (
-        <MatchSetupPhase
-          match={match}
-          myUid={user.uid}
-          myDisplayName={profile.displayName}
-        />
+        isBughouse ? (
+          <MatchSetupPhase
+            match={match}
+            myUid={user.uid}
+            myDisplayName={profile.displayName}
+          />
+        ) : (
+          <SingleBoardSetupPhase match={match} myUid={user.uid} />
+        )
       ) : inSetup ? (
         <div className="flex items-center justify-center min-h-[50vh]">
           <div className="text-center space-y-2">
@@ -134,8 +143,10 @@ export default function MatchPage() {
             <p className="text-sm text-muted-foreground">Match starting soon…</p>
           </div>
         </div>
-      ) : (
+      ) : isBughouse ? (
         <BughouseArena match={match} boards={boards} />
+      ) : (
+        <SingleBoardArena match={match} boards={boards} />
       )}
     </>
   );

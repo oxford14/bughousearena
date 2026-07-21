@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,14 +19,62 @@ import {
   subscribeToMessages,
   type UserSearchResult,
 } from "@/lib/social/friends";
+import {
+  friendActivityLabel,
+  subscribeToFriendsPresence,
+  type FriendActivityStatus,
+  type FriendPresence,
+} from "@/lib/social/friend-presence";
 import type { DirectMessage, FriendEntry, FriendRequest } from "@/types/firestore";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+
+function activityBadgeClass(status: FriendActivityStatus): string {
+  switch (status) {
+    case "in_match":
+      return "bg-rose-500/20 text-rose-300 hover:bg-rose-500/20 border-rose-500/30";
+    case "in_queue":
+      return "bg-sky-500/20 text-sky-300 hover:bg-sky-500/20 border-sky-500/30";
+    case "online":
+      return "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20 border-emerald-500/30";
+    case "away":
+      return "bg-amber-500/20 text-amber-300 hover:bg-amber-500/20 border-amber-500/30";
+    default:
+      return "";
+  }
+}
+
+function FriendStatusBadge({
+  presence,
+  className,
+}: {
+  presence: FriendPresence | undefined;
+  className?: string;
+}) {
+  const activity = presence?.activity ?? "offline";
+  const isOffline = activity === "offline";
+  return (
+    <Badge
+      variant={isOffline ? "secondary" : "outline"}
+      className={cn(
+        "capitalize shrink-0",
+        !isOffline && activityBadgeClass(activity),
+        className
+      )}
+    >
+      {friendActivityLabel(activity)}
+    </Badge>
+  );
+}
 
 export default function FriendsPage() {
   const { profile } = useAuth();
   const [friends, setFriends] = useState<FriendEntry[]>([]);
   const [requests, setRequests] = useState<FriendRequest[]>([]);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [presenceByUid, setPresenceByUid] = useState<
+    Record<string, FriendPresence>
+  >({});
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -48,12 +96,37 @@ export default function FriendsPage() {
     };
   }, [profile]);
 
-  const friendIds = new Set(friends.map((f) => f.friendId));
+  const friendIds = useMemo(
+    () => friends.map((f) => f.friendId),
+    [friends]
+  );
+
+  useEffect(() => {
+    return subscribeToFriendsPresence(friendIds, setPresenceByUid);
+  }, [friendIds]);
+
+  const friendIdSet = useMemo(() => new Set(friendIds), [friendIds]);
+
+  const sortedFriends = useMemo(() => {
+    const rank = (uid: string) => {
+      const a = presenceByUid[uid]?.activity ?? "offline";
+      if (a === "in_match") return 0;
+      if (a === "in_queue") return 1;
+      if (a === "online") return 2;
+      if (a === "away") return 3;
+      return 4;
+    };
+    return [...friends].sort((a, b) => {
+      const d = rank(a.friendId) - rank(b.friendId);
+      if (d !== 0) return d;
+      return a.displayName.localeCompare(b.displayName);
+    });
+  }, [friends, presenceByUid]);
 
   const handleSearch = async () => {
     if (!profile) return;
-    const query = searchQuery.trim();
-    if (query.length < 2) {
+    const queryText = searchQuery.trim();
+    if (queryText.length < 2) {
       toast.error("Enter at least 2 characters to search.");
       return;
     }
@@ -61,14 +134,15 @@ export default function FriendsPage() {
     setSearching(true);
     setHasSearched(true);
     try {
-      const results = await searchUsersByDisplayName(query, {
+      const results = await searchUsersByDisplayName(queryText, {
         excludeUid: profile.uid,
         limit: 8,
       });
       setSearchResults(results);
       if (results.length === 0) {
         toast.message("No players found.", {
-          description: "Try a different spelling or the start of their display name.",
+          description:
+            "Try a different spelling or the start of their display name.",
         });
       }
     } catch {
@@ -81,7 +155,7 @@ export default function FriendsPage() {
 
   const handleSendRequest = async (user: UserSearchResult) => {
     if (!profile) return;
-    if (friendIds.has(user.uid)) {
+    if (friendIdSet.has(user.uid)) {
       toast.message("Already friends.");
       return;
     }
@@ -106,7 +180,12 @@ export default function FriendsPage() {
 
   const handleSendMessage = async () => {
     if (!profile || !selectedFriend || !messageText) return;
-    await sendDirectMessage(profile.uid, selectedFriend, profile.uid, messageText);
+    await sendDirectMessage(
+      profile.uid,
+      selectedFriend,
+      profile.uid,
+      messageText
+    );
     setMessageText("");
     toast.success("Message sent!");
   };
@@ -150,16 +229,17 @@ export default function FriendsPage() {
 
           {hasSearched && !searching && searchResults.length === 0 && (
             <p className="text-sm text-muted-foreground">
-              No players match &ldquo;{searchQuery.trim()}&rdquo;. Try the beginning of their
-              display name.
+              No players match &ldquo;{searchQuery.trim()}&rdquo;. Try the beginning
+              of their display name.
             </p>
           )}
 
           {searchResults.length > 0 && (
             <ul className="space-y-2">
               {searchResults.map((user) => {
-                const isFriend = friendIds.has(user.uid);
+                const isFriend = friendIdSet.has(user.uid);
                 const requestSent = sentRequestUids.has(user.uid);
+                const presence = presenceByUid[user.uid];
 
                 return (
                   <li
@@ -176,12 +256,19 @@ export default function FriendsPage() {
                         Rating {user.rating}
                       </p>
                     </div>
-                    <Badge
-                      variant={user.onlineStatus === "online" ? "default" : "secondary"}
+                    <FriendStatusBadge
+                      presence={
+                        presence ?? {
+                          uid: user.uid,
+                          onlineStatus: user.onlineStatus,
+                          inMatch: false,
+                          inQueue: false,
+                          matchId: null,
+                          activity: user.onlineStatus,
+                        }
+                      }
                       className="hidden sm:inline-flex"
-                    >
-                      {user.onlineStatus}
-                    </Badge>
+                    />
                     {isFriend ? (
                       <Badge variant="outline">Friends</Badge>
                     ) : requestSent ? (
@@ -218,8 +305,23 @@ export default function FriendsPage() {
               <div key={req.id} className="flex items-center justify-between">
                 <span>{req.fromDisplayName}</span>
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={() => handleAccept(req)} className="cursor-pointer">Accept</Button>
-                  <Button size="sm" variant="outline" onClick={() => declineFriendRequest(profile!.uid, req.id)} className="cursor-pointer">Decline</Button>
+                  <Button
+                    size="sm"
+                    onClick={() => handleAccept(req)}
+                    className="cursor-pointer"
+                  >
+                    Accept
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      declineFriendRequest(profile!.uid, req.id)
+                    }
+                    className="cursor-pointer"
+                  >
+                    Decline
+                  </Button>
                 </div>
               </div>
             ))}
@@ -233,10 +335,10 @@ export default function FriendsPage() {
             <CardTitle className="font-heading">Friend List</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {friends.length === 0 && (
+            {sortedFriends.length === 0 && (
               <p className="text-sm text-muted-foreground">No friends yet.</p>
             )}
-            {friends.map((friend) => (
+            {sortedFriends.map((friend) => (
               <button
                 key={friend.friendId}
                 type="button"
@@ -247,10 +349,10 @@ export default function FriendsPage() {
                   <AvatarImage src={friend.photoURL ?? undefined} />
                   <AvatarFallback>{friend.displayName[0]}</AvatarFallback>
                 </Avatar>
-                <span className="flex-1 text-left">{friend.displayName}</span>
-                <Badge variant={friend.onlineStatus === "online" ? "default" : "secondary"}>
-                  {friend.onlineStatus}
-                </Badge>
+                <span className="flex-1 text-left truncate">
+                  {friend.displayName}
+                </span>
+                <FriendStatusBadge presence={presenceByUid[friend.friendId]} />
               </button>
             ))}
           </CardContent>
@@ -263,10 +365,18 @@ export default function FriendsPage() {
           <CardContent className="space-y-4">
             <div className="h-48 overflow-y-auto space-y-2">
               {messages
-                .filter((m) => !selectedFriend || m.fromUid === selectedFriend || m.fromUid === profile?.uid)
+                .filter(
+                  (m) =>
+                    !selectedFriend ||
+                    m.fromUid === selectedFriend ||
+                    m.fromUid === profile?.uid
+                )
                 .map((m) => (
                   <p key={m.id} className="text-sm">
-                    <span className="text-primary">{m.fromUid === profile?.uid ? "You" : "Friend"}:</span> {m.text}
+                    <span className="text-primary">
+                      {m.fromUid === profile?.uid ? "You" : "Friend"}:
+                    </span>{" "}
+                    {m.text}
                   </p>
                 ))}
             </div>
@@ -277,7 +387,13 @@ export default function FriendsPage() {
                 onChange={(e) => setMessageText(e.target.value)}
                 disabled={!selectedFriend}
               />
-              <Button onClick={handleSendMessage} disabled={!selectedFriend} className="cursor-pointer">Send</Button>
+              <Button
+                onClick={handleSendMessage}
+                disabled={!selectedFriend}
+                className="cursor-pointer"
+              >
+                Send
+              </Button>
             </div>
           </CardContent>
         </Card>

@@ -44,7 +44,7 @@ export const REDEEM_BUNDLES: RedeemBundle[] = [
   },
 ];
 
-export const REDEEM_MIN_MATCHES = 20;
+export const REDEEM_MIN_RANKED_MATCHES = 20;
 export const REDEEM_MIN_ACCOUNT_AGE_DAYS = 7;
 
 export function getRedeemBundle(bundleId: string): RedeemBundle | undefined {

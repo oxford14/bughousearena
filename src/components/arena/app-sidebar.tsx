@@ -100,15 +100,35 @@ function DesktopSidebarGate() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  // Lock document scroll so Chrome doesn't show the page scrollbar;
+  // only the shell content pane scrolls (hidden bar, swipe/wheel OK).
+  useEffect(() => {
+    const html = document.documentElement;
+    const { body } = document;
+    const prevHtmlOverflow = html.style.overflow;
+    const prevBodyOverflow = body.style.overflow;
+    html.style.overflow = "hidden";
+    body.style.overflow = "hidden";
+    return () => {
+      html.style.overflow = prevHtmlOverflow;
+      body.style.overflow = prevBodyOverflow;
+    };
+  }, []);
+
   return (
-    <SidebarProvider defaultOpen>
+    <SidebarProvider
+      defaultOpen
+      className="h-svh max-h-svh overflow-hidden"
+    >
       <DesktopSidebarGate />
-      <main className="flex min-h-svh flex-1 flex-col md:min-h-screen">
-        <header className="flex items-center gap-4 border-b border-primary/20 px-4 py-3">
+      <main className="flex h-svh max-h-svh min-h-0 flex-1 flex-col overflow-hidden">
+        <header className="flex shrink-0 items-center gap-4 border-b border-primary/20 px-4 py-3">
           <SidebarTrigger className="hidden cursor-pointer md:inline-flex" />
           <div className="flex min-w-0 flex-1 items-center gap-2 md:hidden">
             <Swords className="h-5 w-5 shrink-0 text-primary" />
-            <span className="font-heading truncate text-sm neon-glow">Bughouse Arena</span>
+            <span className="font-heading truncate text-sm neon-glow">
+              Bughouse Arena
+            </span>
           </div>
           <div className="hidden flex-1 md:block" />
           <div className="flex shrink-0 items-center gap-1">
@@ -117,7 +137,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <ProfileMenu />
           </div>
         </header>
-        <div className="flex-1 overflow-auto p-4 pb-24 md:p-6 md:pb-6">{children}</div>
+        <div className="no-scrollbar min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain p-4 pb-24 md:p-6 md:pb-6">
+          {children}
+        </div>
       </main>
       <AppBottomNav />
       <ActiveMatchListener />

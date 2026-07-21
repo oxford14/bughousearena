@@ -10,7 +10,7 @@ import type { BoardDocument } from "@/types/firestore";
 import type { MatchPlayer } from "@/types/firestore";
 import { getValidDropSquares, getValidMoveSquares, getCheckHighlightState } from "@/lib/game/move-validator";
 import { getChessboardOptions, buildHoverSquareStyles } from "@/lib/game/arena-board-theme";
-import { canDropPiece, getSeatColor, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
+import { canDropPiece, getSeatColor, BOARD_IDS, type BoardSeatId, type PieceSymbol } from "@/lib/game/bughouse-engine";
 import { useBoardTheme } from "@/providers/board-theme-provider";
 import { usePieceSet } from "@/providers/piece-set-provider";
 import { pieceTypeToSymbol } from "@/components/game/arena-pieces";
@@ -116,7 +116,12 @@ export const ArenaBoardPanel = memo(function ArenaBoardPanel({
   const { themeId } = useBoardTheme();
   const { pieces } = usePieceSet();
 
-  const seatColor = getSeatColor(board.id as BoardSeatId);
+  const seatColor =
+    player?.playerColor ??
+    board.playerColor ??
+    (BOARD_IDS.includes(board.id as BoardSeatId)
+      ? getSeatColor(board.id as BoardSeatId)
+      : "w");
   const reserve = board.captured as PieceSymbol[];
   const opponentSeatColor = seatColor === "w" ? "b" : "w";
   const isMyTurn =
@@ -150,27 +155,36 @@ export const ArenaBoardPanel = memo(function ArenaBoardPanel({
     return getValidDropSquares(board.fen, selectedPiece, seatColor, reserve);
   }, [board.fen, isMine, reserve, seatColor, selectedPiece]);
 
+  const gameType = match.gameType;
+
   const validMoveSquares = useMemo(() => {
     if (!isMine || !isMyTurn || !selectedSquare || selectedPiece) return [];
-    return getValidMoveSquares(board.fen, selectedSquare, seatColor);
-  }, [board.fen, isMine, isMyTurn, seatColor, selectedPiece, selectedSquare]);
+    return getValidMoveSquares(board.fen, selectedSquare, seatColor, gameType);
+  }, [
+    board.fen,
+    gameType,
+    isMine,
+    isMyTurn,
+    seatColor,
+    selectedPiece,
+    selectedSquare,
+  ]);
 
   const showCheckHighlight = (isMyTurn || isPartnerTurn) && board.boardStatus === "active";
   const checkState = useMemo(() => {
     if (!showCheckHighlight) {
       return { inCheck: false, kingSquare: null, attackerSquares: [] as Square[] };
     }
-    return getCheckHighlightState(board.fen, seatColor);
-  }, [board.fen, seatColor, showCheckHighlight]);
+    return getCheckHighlightState(board.fen, seatColor, gameType);
+  }, [board.fen, gameType, seatColor, showCheckHighlight]);
 
   const isPlayerInCheck = isMyTurn && checkState.inCheck;
   const opponentCheckState = useMemo(() => {
     if (board.turn !== opponentSeatColor) {
       return { inCheck: false, kingSquare: null, attackerSquares: [] as Square[] };
     }
-    return getCheckHighlightState(board.fen, opponentSeatColor);
-  }, [board.fen, board.turn, opponentSeatColor]);
-  const isOpponentInCheck = opponentCheckState.inCheck;
+    return getCheckHighlightState(board.fen, opponentSeatColor, gameType);
+  }, [board.fen, board.turn, gameType, opponentSeatColor]);  const isOpponentInCheck = opponentCheckState.inCheck;
   const isOpponentTurn =
     board.boardStatus === "active" && board.turn === opponentSeatColor;
 
@@ -392,6 +406,7 @@ export const ArenaBoardPanel = memo(function ArenaBoardPanel({
             boards={displayBoards}
             match={match}
             side="opponent"
+            seatColor={seatColor}
           />
         }
         turnBadge={opponentTurnBadge}
@@ -424,6 +439,8 @@ export const ArenaBoardPanel = memo(function ArenaBoardPanel({
               boards={displayBoards}
               match={match}
               side="mine"
+              seatColor={seatColor}
+              lowTimeTick={isMine}
             />
           }
           isSelf={isMine}

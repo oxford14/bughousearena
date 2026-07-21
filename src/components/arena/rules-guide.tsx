@@ -410,6 +410,13 @@ export function RulesGuide({ embedded = false }: { embedded?: boolean }) {
               <RuleCard title="Bughouse vs Crazyhouse?">
                 <p>Crazyhouse is two-player with your own captures. Bughouse is four-player team play with partner reserves.</p>
               </RuleCard>
+              <RuleCard title="What is Atomic Chess?">
+                <p>
+                  Every capture explodes: the capturer, the captured piece, and all adjacent
+                  non-pawn pieces are removed. Explode the enemy king to win. Kings cannot
+                  capture, and you may not explode your own king.
+                </p>
+              </RuleCard>
             </div>
           </Section>
 

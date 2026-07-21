@@ -252,11 +252,18 @@ export function subscribeToPartyInvites(
     collection(getFirebaseDb(), "users", uid, "partyInvites"),
     where("status", "==", "pending")
   );
-  return onSnapshot(q, (snap) => {
-    callback(
-      snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PartyInvite)
-    );
-  });
+  return onSnapshot(
+    q,
+    (snap) => {
+      callback(
+        snap.docs.map((d) => ({ id: d.id, ...d.data() }) as PartyInvite)
+      );
+    },
+    (error) => {
+      console.error("[party] subscribeToPartyInvites failed", error);
+      callback([]);
+    }
+  );
 }
 
 export function isPartyLeader(party: PartyDocument, uid: string): boolean {

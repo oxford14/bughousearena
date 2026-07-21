@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import { Banknote, CheckCircle2, XCircle } from "lucide-react";
+import { Banknote, CheckCircle2, ChevronDown, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,17 @@ import {
   checkRedeemEligibility,
   requestRedemption,
 } from "@/lib/wallet/wallet-api";
+import {
+  PAYOUT_METHODS,
+  PH_BANKS,
+  formatPayoutAccountNumber,
+  formatPayoutMethodLabel,
+  getDigitProgress,
+  getPayoutMethodConfig,
+  stripAccountDigits,
+  validatePayoutDestination,
+  type PayoutMethod,
+} from "@/lib/wallet/payout-methods";
 import { useAuth } from "@/providers/auth-provider";
 import {
   collection,
@@ -22,6 +33,7 @@ import {
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/config";
 import type { RedemptionRequest } from "@/types/wallet";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 export default function RedeemPageContent() {
@@ -29,10 +41,15 @@ export default function RedeemPageContent() {
   const [eligible, setEligible] = useState(false);
   const [reasons, setReasons] = useState<string[]>([]);
   const [selectedBundle, setSelectedBundle] = useState(REDEEM_BUNDLES[0]!.id);
-  const [gcashNumber, setGcashNumber] = useState("");
-  const [gcashName, setGcashName] = useState("");
+  const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>("gcash");
+  const [accountName, setAccountName] = useState("");
+  const [accountNumber, setAccountNumber] = useState("");
+  const [bankName, setBankName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [history, setHistory] = useState<(RedemptionRequest & { id: string })[]>([]);
+
+  const methodConfig = getPayoutMethodConfig(payoutMethod);
+  const digitProgress = getDigitProgress(payoutMethod, accountNumber);
 
   useEffect(() => {
     void checkRedeemEligibility()
@@ -41,7 +58,7 @@ export default function RedeemPageContent() {
         setReasons(r.reasons);
       })
       .catch(() => {});
-  }, [profile?.completedMatches, profile?.arenaCoins]);
+  }, [profile?.rankedWins, profile?.rankedLosses, profile?.arenaCoins]);
 
   useEffect(() => {
     if (!user) return;
@@ -57,18 +74,51 @@ export default function RedeemPageContent() {
     });
   }, [user]);
 
+  const formError = useMemo(
+    () =>
+      validatePayoutDestination({
+        method: payoutMethod,
+        accountName,
+        accountNumber,
+        bankName,
+      }),
+    [payoutMethod, accountName, accountNumber, bankName]
+  );
+
+  const handleMethodChange = (method: PayoutMethod) => {
+    setPayoutMethod(method);
+    setAccountNumber("");
+    if (method !== "bank") setBankName("");
+  };
+
+  const handleNumberChange = (value: string) => {
+    const raw = stripAccountDigits(value);
+    const max = methodConfig?.digits ?? methodConfig?.maxDigits ?? 12;
+    if (raw.length > max) return;
+    setAccountNumber(formatPayoutAccountNumber(payoutMethod, raw));
+  };
+
   const handleSubmit = async () => {
+    if (formError) {
+      toast.error(formError);
+      return;
+    }
     setSubmitting(true);
     try {
       await requestRedemption({
         bundleId: selectedBundle,
-        gcashNumber,
-        gcashName,
+        payoutMethod,
+        accountName: accountName.trim(),
+        accountNumber: stripAccountDigits(accountNumber),
+        ...(payoutMethod === "bank" ? { bankName: bankName.trim() } : {}),
       });
       await refreshProfile();
-      toast.success("Redemption request submitted! We'll process it within 24–48 hours.");
-      setGcashNumber("");
-      setGcashName("");
+      toast.success(
+        "Redemption request submitted! We'll process it within 24–48 hours."
+      );
+      setAccountName("");
+      setAccountNumber("");
+      setBankName("");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Request failed.");
     } finally {
@@ -86,7 +136,8 @@ export default function RedeemPageContent() {
           Redeem
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Convert Arena Coins to GCash. Skill-based rewards — not gambling.
+          Convert Arena Coins to GCash, Maya, or bank. Skill-based rewards — not
+          gambling.
         </p>
       </motion.div>
 
@@ -112,7 +163,10 @@ export default function RedeemPageContent() {
             </p>
           ) : (
             reasons.map((reason) => (
-              <p key={reason} className="flex items-start gap-2 text-sm text-muted-foreground">
+              <p
+                key={reason}
+                className="flex items-start gap-2 text-sm text-muted-foreground"
+              >
                 <XCircle className="h-4 w-4 shrink-0 text-amber-400 mt-0.5" />
                 {reason}
               </p>
@@ -139,35 +193,110 @@ export default function RedeemPageContent() {
             >
               <div className="flex justify-between items-center">
                 <span className="font-heading">{b.label}</span>
-                <span className="text-primary font-medium">₱{b.phpAmount.toLocaleString()}</span>
+                <span className="text-primary font-medium">
+                  ₱{b.phpAmount.toLocaleString()}
+                </span>
               </div>
               <p className="text-xs text-muted-foreground mt-1">{b.description}</p>
             </button>
           ))}
 
-          <div className="space-y-3 pt-2">
+          <div className="space-y-3 pt-2 border-t border-primary/15">
             <div>
-              <Label htmlFor="gcash-name">GCash account name</Label>
+              <Label htmlFor="payout-method">Payout method</Label>
+              <div className="relative mt-1">
+                <select
+                  id="payout-method"
+                  value={payoutMethod}
+                  onChange={(e) =>
+                    handleMethodChange(e.target.value as PayoutMethod)
+                  }
+                  className="w-full appearance-none rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer"
+                >
+                  {PAYOUT_METHODS.map((method) => (
+                    <option key={method.value} value={method.value}>
+                      {method.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+              {methodConfig && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {methodConfig.hint}
+                </p>
+              )}
+            </div>
+
+            {payoutMethod === "bank" && (
+              <div>
+                <Label htmlFor="bank-name">Bank</Label>
+                <div className="relative mt-1">
+                  <select
+                    id="bank-name"
+                    value={bankName}
+                    onChange={(e) => setBankName(e.target.value)}
+                    className="w-full appearance-none rounded-lg border border-input bg-background px-3 py-2 pr-10 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] cursor-pointer"
+                  >
+                    <option value="">Select your bank</option>
+                    {PH_BANKS.map((bank) => (
+                      <option key={bank} value={bank}>
+                        {bank}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                </div>
+              </div>
+            )}
+
+            <div>
+              <Label htmlFor="account-name">
+                {methodConfig?.nameLabel ?? "Account name"}
+              </Label>
               <Input
-                id="gcash-name"
-                value={gcashName}
-                onChange={(e) => setGcashName(e.target.value)}
+                id="account-name"
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
                 placeholder="Juan Dela Cruz"
               />
             </div>
+
             <div>
-              <Label htmlFor="gcash-number">GCash mobile number</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="account-number">
+                  {methodConfig?.numberLabel ?? "Account number"}
+                </Label>
+                <span
+                  className={cn(
+                    "text-[11px] tabular-nums",
+                    digitProgress.complete
+                      ? "text-emerald-400"
+                      : "text-muted-foreground"
+                  )}
+                >
+                  {digitProgress.label}
+                </span>
+              </div>
               <Input
-                id="gcash-number"
-                value={gcashNumber}
-                onChange={(e) => setGcashNumber(e.target.value)}
-                placeholder="09XX XXX XXXX"
+                id="account-number"
+                inputMode="numeric"
+                value={accountNumber}
+                onChange={(e) => handleNumberChange(e.target.value)}
+                placeholder={methodConfig?.placeholder}
+                className="font-mono tracking-wide"
               />
             </div>
+
             <Button
               className="w-full btn-arena-primary"
-              disabled={!eligible || submitting || (profile?.arenaCoins ?? 0) < bundle.coins}
-              onClick={handleSubmit}
+              disabled={
+                !eligible ||
+                submitting ||
+                Boolean(formError) ||
+                (profile?.arenaCoins ?? 0) < bundle.coins
+              }
+              onClick={() => void handleSubmit()}
             >
               Redeem {bundle.coins.toLocaleString()} coins → ₱{bundle.phpAmount}
             </Button>
@@ -187,7 +316,11 @@ export default function RedeemPageContent() {
                 className="flex justify-between items-center rounded-lg border border-primary/15 px-3 py-2 text-sm"
               >
                 <span>
-                  ₱{req.phpAmount} · {req.status}
+                  ₱{req.phpAmount} · {req.status} ·{" "}
+                  {formatPayoutMethodLabel(
+                    req.payoutMethod ?? "gcash",
+                    req.bankName
+                  )}
                 </span>
                 <span className="text-muted-foreground">{req.coins} coins</span>
               </div>

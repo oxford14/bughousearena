@@ -3,6 +3,7 @@ import {
   removeProfilePhotoForUser,
   uploadProfilePhotoForUser,
 } from "@/lib/server/profile-photo";
+import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
@@ -13,6 +14,9 @@ const ALLOWED_TYPES = new Set(["image/webp", "image/jpeg"]);
 export async function POST(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
+    const limited = await enforceApiRateLimits(request, { uid });
+    if (limited) return limited;
+
     const form = await request.formData();
     const file = form.get("photo");
 
@@ -54,6 +58,9 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const { uid } = await verifyAuthRequest(request);
+    const limited = await enforceApiRateLimits(request, { uid });
+    if (limited) return limited;
+
     await removeProfilePhotoForUser(uid);
     return NextResponse.json({ ok: true });
   } catch (error) {

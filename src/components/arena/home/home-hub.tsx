@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { Castle, Trophy, Users } from "lucide-react";
+import { Castle, MessagesSquare, Trophy, Users } from "lucide-react";
 import { PlayerStatusBar } from "@/components/arena/home/player-status-bar";
 import { HubActionCard } from "@/components/arena/home/hub-action-card";
 import { DailyBonusCard } from "@/components/arena/rewards/daily-bonus-card";
@@ -17,6 +17,7 @@ interface HomeHubProps {
 }
 
 const QUICK_LINKS = [
+  { href: "/app/chat", label: "Chat", icon: MessagesSquare },
   { href: "/app/friends", label: "Friends", icon: Users },
   { href: "/app/leaderboards", label: "Ranks", icon: Trophy },
   { href: "/app/houses", label: "Houses", icon: Castle },
@@ -78,9 +79,37 @@ export function HomeHub({ profile, onOpenShop, onOpenTopUp }: HomeHubProps) {
           Welcome, <span className="text-foreground font-medium">{displayName}</span>
         </p>
         <p className="mt-2 max-w-xs text-xs text-muted-foreground/80">
-          4-player team chess. Queue up, rank up, customize your arena.
+          Bughouse first — plus Standard Chess and Crazyhouse.
         </p>
       </motion.section>
+
+      <motion.div
+        className="flex flex-wrap justify-center gap-2"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, duration: 0.35 }}
+      >
+        {(
+          [
+            { href: "/app/lobby?gameType=bughouse", label: "★ Bughouse" },
+            { href: "/app/lobby?gameType=standard", label: "Standard" },
+            { href: "/app/lobby?gameType=crazyhouse", label: "Crazyhouse" },
+            { href: "/app/lobby?gameType=atomic", label: "Atomic" },
+          ] as const
+        ).map((chip) => (
+          <Link
+            key={chip.href}
+            href={chip.href}
+            onClick={() => {
+              unlock();
+              play("uiClick");
+            }}
+            className="rounded-full border border-primary/30 bg-card/40 px-3 py-1 text-xs text-muted-foreground hover:border-primary hover:text-foreground transition-colors"
+          >
+            {chip.label}
+          </Link>
+        ))}
+      </motion.div>
 
       <motion.div
         initial={{ opacity: 0, y: 16 }}
@@ -133,7 +162,7 @@ export function HomeHub({ profile, onOpenShop, onOpenTopUp }: HomeHubProps) {
       </motion.div>
 
       <motion.section
-        className="grid grid-cols-3 gap-2"
+        className="grid grid-cols-2 gap-2 sm:grid-cols-4"
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4, duration: 0.4 }}

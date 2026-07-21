@@ -12,6 +12,12 @@ import {
   type PieceSymbol,
   type PlayerColor,
 } from "./bughouse-engine";
+import {
+  getAtomicValidMoveSquares,
+  isInAtomicCheck,
+} from "./single-board-engine";
+import type { ChessGameType } from "@/types/firestore";
+import { normalizeGameType } from "./game-types";
 
 export type { PieceSymbol };
 
@@ -48,8 +54,13 @@ export function validateMove(
 export function getValidMoveSquares(
   fen: string,
   fromSquare: Square,
-  seatColor: PlayerColor = "w"
+  seatColor: PlayerColor = "w",
+  gameType?: ChessGameType
 ): Square[] {
+  if (normalizeGameType(gameType) === "atomic") {
+    return getAtomicValidMoveSquares(fen, fromSquare, seatColor);
+  }
+
   const chess = new Chess(fen);
   if (chess.turn() !== seatColor) return [];
 
@@ -88,8 +99,28 @@ export interface CheckHighlightState {
 /** When `seatColor` is the side to move and in check, return king + attacker squares. */
 export function getCheckHighlightState(
   fen: string,
-  seatColor: PlayerColor
+  seatColor: PlayerColor,
+  gameType?: ChessGameType
 ): CheckHighlightState {
+  const type = normalizeGameType(gameType);
+  if (type === "atomic") {
+    if (!isInAtomicCheck(fen, seatColor)) {
+      return { inCheck: false, kingSquare: null, attackerSquares: [] };
+    }
+    try {
+      const chess = new Chess(fen);
+      const kingSquare = findKingSquare(chess, seatColor);
+      const opponent: PlayerColor = seatColor === "w" ? "b" : "w";
+      const attackerSquares =
+        kingSquare != null
+          ? (chess.attackers(kingSquare, opponent) as Square[])
+          : [];
+      return { inCheck: true, kingSquare, attackerSquares };
+    } catch {
+      return { inCheck: true, kingSquare: null, attackerSquares: [] };
+    }
+  }
+
   const chess = new Chess(fen);
   if (chess.turn() !== seatColor || !chess.isCheck()) {
     return { inCheck: false, kingSquare: null, attackerSquares: [] };

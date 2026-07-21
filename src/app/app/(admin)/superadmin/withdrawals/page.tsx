@@ -13,6 +13,7 @@ import {
   resolveWithdrawal,
   type AdminWithdrawal,
 } from "@/lib/admin/admin-api";
+import { formatPayoutMethodLabel } from "@/lib/wallet/payout-methods";
 
 const STATUS_TABS = [
   { id: "pending", label: "Pending" },
@@ -56,7 +57,7 @@ export default function SuperAdminWithdrawalsPage() {
   const handlePay = async (item: AdminWithdrawal) => {
     if (
       !window.confirm(
-        `Send ₱${item.phpAmount} via PayMongo to ${item.gcashName} (${item.gcashNumber})?\n\nThis moves real money and cannot be undone.`
+        `Send ₱${item.phpAmount} via PayMongo to ${item.accountName} (${item.accountNumber}) via ${formatPayoutMethodLabel(item.payoutMethod, item.bankName)}?\n\nThis moves real money and cannot be undone.`
       )
     )
       return;
@@ -95,7 +96,7 @@ export default function SuperAdminWithdrawalsPage() {
       <div>
         <h1 className="font-heading text-3xl neon-glow">Withdrawals</h1>
         <p className="text-sm text-muted-foreground">
-          Review redemption requests and pay them out to GCash via PayMongo.
+          Review redemption requests and pay them out via PayMongo (GCash, Maya, or bank).
         </p>
       </div>
 
@@ -143,8 +144,9 @@ export default function SuperAdminWithdrawalsPage() {
                 {item.email ? ` · ${item.email}` : ""}
               </p>
               <p>
-                <span className="text-muted-foreground">GCash:</span>{" "}
-                {item.gcashName} · {item.gcashNumber}
+                <span className="text-muted-foreground">Payout:</span>{" "}
+                {formatPayoutMethodLabel(item.payoutMethod, item.bankName)} ·{" "}
+                {item.accountName} · {item.accountNumber}
               </p>
               {item.paymongoTransferId && (
                 <p className="truncate">
