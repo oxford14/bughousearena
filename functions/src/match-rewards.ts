@@ -109,59 +109,14 @@ async function incrementCompletedMatches(uids: string[]): Promise<void> {
 }
 
 async function handleTournamentMatch(
-  matchId: string,
+  _matchId: string,
   match: Record<string, unknown>,
-  winnerTeam: 1 | 2
+  _winnerTeam: 1 | 2
 ): Promise<void> {
-  const tournamentId = match.tournamentId as string | undefined;
-  const team1Id = match.tournamentTeam1Id as string | undefined;
-  const team2Id = match.tournamentTeam2Id as string | undefined;
-  if (!tournamentId || !team1Id || !team2Id) return;
-
-  const winnerTeamId = winnerTeam === 1 ? team1Id : team2Id;
-
-  // Dynamic import won't work in functions easily — inline minimal advance logic
-  const db = getDb();
-  const tournamentRef = db.collection("tournaments").doc(tournamentId);
-  const tournamentSnap = await tournamentRef.get();
-  if (!tournamentSnap.exists) return;
-
-  const bracket = (tournamentSnap.data()?.bracket as Array<Record<string, unknown>>) ?? [];
-  const bracketIndex = bracket.findIndex((m) => m.matchId === matchId);
-  if (bracketIndex < 0) return;
-
-  const updated = bracket.map((m) => ({ ...m }));
-  updated[bracketIndex] = { ...updated[bracketIndex], winnerTeamId };
-
-  const current = updated[bracketIndex]!;
-  const nextRound = (current.round as number) + 1;
-  const nextMatchIndex = Math.floor((current.matchIndex as number) / 2);
-  const nextBracketIndex = updated.findIndex(
-    (m) => m.round === nextRound && m.matchIndex === nextMatchIndex
-  );
-
-  if (nextBracketIndex >= 0) {
-    const slot =
-      (current.matchIndex as number) % 2 === 0 ? "team1Id" : "team2Id";
-    updated[nextBracketIndex] = { ...updated[nextBracketIndex], [slot]: winnerTeamId };
-  }
-
-  const isFinal = current.round === 3;
-  if (isFinal) {
-    const loserTeamId =
-      current.team1Id === winnerTeamId ? current.team2Id : current.team1Id;
-    await tournamentRef.update({
-      bracket: updated,
-      status: "completed",
-      championTeamId: winnerTeamId,
-      runnerUpTeamId: loserTeamId,
-    });
-    // Rewards handled by Next.js admin path or duplicate pay logic — skip in CF for now
-    // Tournament rewards will be paid via API call from client result screen as fallback
-    return;
-  }
-
-  await tournamentRef.update({ bracket: updated });
+  // Bracket advancement + champion payout run exclusively via
+  // POST /api/tournaments/advance-match (match result screen) to avoid
+  // double-writes and keep wait-for-round / payout logic in one place.
+  if (!match.tournamentId) return;
 }
 
 export const onMatchCompleted = onDocumentUpdated(

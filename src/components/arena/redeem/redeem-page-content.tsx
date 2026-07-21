@@ -39,6 +39,7 @@ import { toast } from "sonner";
 export default function RedeemPageContent() {
   const { user, profile, refreshProfile } = useAuth();
   const [eligible, setEligible] = useState(false);
+  const [bypassed, setBypassed] = useState(false);
   const [reasons, setReasons] = useState<string[]>([]);
   const [selectedBundle, setSelectedBundle] = useState(REDEEM_BUNDLES[0]!.id);
   const [payoutMethod, setPayoutMethod] = useState<PayoutMethod>("gcash");
@@ -56,6 +57,7 @@ export default function RedeemPageContent() {
       .then((r) => {
         setEligible(r.eligible);
         setReasons(r.reasons);
+        setBypassed(Boolean(r.bypassed));
       })
       .catch(() => {});
   }, [profile?.rankedWins, profile?.rankedLosses, profile?.arenaCoins]);
@@ -159,7 +161,10 @@ export default function RedeemPageContent() {
         <CardContent className="space-y-2">
           {eligible ? (
             <p className="flex items-center gap-2 text-sm text-emerald-400">
-              <CheckCircle2 className="h-4 w-4" /> You&apos;re eligible to redeem.
+              <CheckCircle2 className="h-4 w-4" />{" "}
+              {bypassed
+                ? "Super admin — play requirements waived."
+                : "You're eligible to redeem."}
             </p>
           ) : (
             reasons.map((reason) => (

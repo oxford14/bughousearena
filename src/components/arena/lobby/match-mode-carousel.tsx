@@ -43,6 +43,24 @@ interface MatchModeCarouselProps {
   disabled?: boolean;
 }
 
+function cardButtons(el: HTMLDivElement): HTMLElement[] {
+  return [...el.children].filter(
+    (node): node is HTMLElement =>
+      node instanceof HTMLElement && node.tagName === "BUTTON"
+  );
+}
+
+/** ScrollLeft needed so `child` sits at the start of the scroller. */
+function scrollLeftForCard(scroller: HTMLDivElement, child: HTMLElement): number {
+  if (child === cardButtons(scroller)[0]) return 0;
+  const scrollerRect = scroller.getBoundingClientRect();
+  const childRect = child.getBoundingClientRect();
+  return Math.max(
+    0,
+    scroller.scrollLeft + (childRect.left - scrollerRect.left)
+  );
+}
+
 export function MatchModeCarousel({
   activeMode,
   onModeChange,
@@ -57,36 +75,50 @@ export function MatchModeCarousel({
   );
   const indexRef = useRef(index);
   indexRef.current = index;
+  /** Ignore scroll snap noise while we animate to a chosen card. */
+  const programmaticRef = useRef(false);
+  const programTimerRef = useRef<number | null>(null);
 
-  const cardAt = (el: HTMLDivElement, i: number) =>
-    ([...el.children].filter(
-      (node): node is HTMLElement =>
-        node instanceof HTMLElement && node.tagName === "BUTTON"
-    )[i] ?? null);
+  const beginProgrammaticScroll = useCallback((targetIndex: number) => {
+    programmaticRef.current = true;
+    if (programTimerRef.current != null) {
+      window.clearTimeout(programTimerRef.current);
+    }
+    programTimerRef.current = window.setTimeout(() => {
+      const el = scrollerRef.current;
+      // Ensure Casual (index 0) lands flush-left after smooth scroll + snap.
+      if (el && targetIndex === 0 && el.scrollLeft > 0) {
+        el.scrollTo({ left: 0, behavior: "auto" });
+      }
+      programmaticRef.current = false;
+      programTimerRef.current = null;
+    }, 500);
+  }, []);
+
+  const scrollToIndex = useCallback(
+    (i: number, announce = true) => {
+      const el = scrollerRef.current;
+      if (!el) return;
+      const child = cardButtons(el)[i];
+      if (!child) return;
+
+      beginProgrammaticScroll(i);
+      const left = i === 0 ? 0 : scrollLeftForCard(el, child);
+      el.scrollTo({ left, behavior: "smooth" });
+
+      setIndex(i);
+      if (announce) {
+        onModeChange(CAROUSEL_MODES[i]!.id);
+      }
+    },
+    [beginProgrammaticScroll, onModeChange]
+  );
 
   useEffect(() => {
     const i = CAROUSEL_MODES.findIndex((m) => m.id === activeMode);
     if (i < 0 || i === indexRef.current) return;
-    setIndex(i);
-    const el = scrollerRef.current;
-    const child = el ? cardAt(el, i) : null;
-    if (el && child) {
-      el.scrollTo({ left: child.offsetLeft, behavior: "smooth" });
-    }
-  }, [activeMode]);
-
-  const scrollTo = useCallback(
-    (i: number) => {
-      const el = scrollerRef.current;
-      if (!el) return;
-      const child = cardAt(el, i);
-      if (!child) return;
-      el.scrollTo({ left: child.offsetLeft, behavior: "smooth" });
-      setIndex(i);
-      onModeChange(CAROUSEL_MODES[i]!.id);
-    },
-    [onModeChange]
-  );
+    scrollToIndex(i, false);
+  }, [activeMode, scrollToIndex]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -94,17 +126,16 @@ export function MatchModeCarousel({
 
     let frame = 0;
     const onScroll = () => {
+      if (programmaticRef.current) return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const children = [...el.children].filter(
-          (node): node is HTMLElement =>
-            node instanceof HTMLElement && node.tagName === "BUTTON"
-        );
+        if (programmaticRef.current) return;
+        const children = cardButtons(el);
         if (children.length === 0) return;
         let best = 0;
         let bestDist = Infinity;
         children.forEach((child, i) => {
-          const dist = Math.abs(child.offsetLeft - el.scrollLeft);
+          const dist = Math.abs(scrollLeftForCard(el, child) - el.scrollLeft);
           if (dist < bestDist) {
             bestDist = dist;
             best = i;
@@ -121,6 +152,9 @@ export function MatchModeCarousel({
     return () => {
       cancelAnimationFrame(frame);
       el.removeEventListener("scroll", onScroll);
+      if (programTimerRef.current != null) {
+        window.clearTimeout(programTimerRef.current);
+      }
     };
   }, [disabled, onModeChange]);
 
@@ -140,7 +174,6 @@ export function MatchModeCarousel({
         </span>
       </div>
 
-      {/* Peek next card; scrollbar fully hidden (Kaza-style swipe strip). */}
       <div
         ref={scrollerRef}
         className={cn(
@@ -148,7 +181,6 @@ export function MatchModeCarousel({
           "touch-pan-x [-webkit-overflow-scrolling:touch]",
           "no-scrollbar scroll-smooth"
         )}
-        style={{ scrollPaddingInline: "0" }}
       >
         {CAROUSEL_MODES.map((m, i) => {
           const active = index === i;
@@ -161,10 +193,9 @@ export function MatchModeCarousel({
               onClick={() => {
                 if (disabled) return;
                 if (i === index) return;
-                scrollTo(i);
+                scrollToIndex(i);
               }}
               className={cn(
-                // Mobile: ~88% width so next card peeks; tablet/desktop tighten.
                 "relative shrink-0 snap-start overflow-hidden rounded-2xl border text-left transition-[border-color,opacity,box-shadow] duration-200",
                 "w-[min(88%,22rem)] sm:w-[min(72%,24rem)] md:w-[min(58%,26rem)]",
                 "min-h-[9.5rem] sm:min-h-[10.5rem]",
@@ -197,7 +228,6 @@ export function MatchModeCarousel({
             </button>
           );
         })}
-        {/* Trailing spacer so the last card can sit flush-left with peek room */}
         <div
           className="w-[12%] shrink-0 snap-end sm:w-[28%] md:w-[42%]"
           aria-hidden
@@ -212,7 +242,7 @@ export function MatchModeCarousel({
               type="button"
               disabled={disabled}
               aria-label={`Go to ${m.label}`}
-              onClick={() => scrollTo(i)}
+              onClick={() => scrollToIndex(i)}
               className={cn(
                 "flex h-7 w-7 items-center justify-center rounded-full text-xs font-medium transition-colors",
                 index === i

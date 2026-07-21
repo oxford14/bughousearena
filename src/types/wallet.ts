@@ -6,6 +6,7 @@ export type CoinLedgerType =
   | "stake_win"
   | "stake_refund"
   | "tournament_fee"
+  | "tournament_refund"
   | "champion_reward"
   | "referral"
   | "redeem_lock"
@@ -83,6 +84,8 @@ export interface ReferralRecord {
 
 export type TournamentStatus = "registration" | "active" | "completed" | "cancelled";
 
+export type TournamentVisibility = "public" | "private";
+
 export interface TournamentBracketMatch {
   id: string;
   round: number;
@@ -97,16 +100,48 @@ export interface TournamentDocument {
   id: string;
   name: string;
   description?: string;
+  hostUid: string;
+  hostDisplayName: string;
+  visibility: TournamentVisibility;
+  /** Short uppercase code for search / private join. */
+  roomCode: string;
+  /** SHA-256 hash of PIN + roomCode; only set for private tournaments. */
+  pinHash?: string | null;
   registrationFeeCoins: number;
   maxTeams: number;
+  /** Max individual players in the lobby (16 = 8 pairs). */
+  maxPlayers: number;
+  /** Players currently in the room (lobby). */
+  playerCount: number;
+  /** Join order for host succession. */
+  memberUids: string[];
+  /** Teams formed after start (0 while in lobby). */
   registeredTeamCount: number;
+  /** Gross entry fees collected (set when tournament starts). */
+  prizePoolCoins: number;
+  /** Display payout = floor(prizePoolCoins * 0.8). */
   championRewardCoins: number;
   status: TournamentStatus;
-  startsAt: Timestamp;
+  /** 16 player seats in the lobby (uid or null). */
+  slots?: (string | null)[];
+  currentRound: number;
   createdAt: Timestamp;
+  /** @deprecated Kept optional for legacy docs. */
+  startsAt?: Timestamp | null;
   bracket?: TournamentBracketMatch[];
   championTeamId?: string | null;
   runnerUpTeamId?: string | null;
+}
+
+/** Individual player in the tournament lobby room. */
+export interface TournamentMember {
+  uid: string;
+  displayName: string;
+  photoURL: string | null;
+  joinOrder: number;
+  /** Index into tournament.slots (0–15). */
+  slotIndex: number;
+  joinedAt: Timestamp;
 }
 
 export interface TournamentTeam {
@@ -117,5 +152,6 @@ export interface TournamentTeam {
   player2Uid: string;
   player1DisplayName: string;
   player2DisplayName: string;
+  slotIndex?: number;
   registeredAt: Timestamp;
 }

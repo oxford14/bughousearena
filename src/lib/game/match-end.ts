@@ -119,6 +119,8 @@ export function getMatchEndReasonTitle(
       return "Time forfeit";
     case "resignation":
       return "Resignation";
+    case "disconnect_forfeit":
+      return "Disconnect forfeit";
     default:
       return "Match complete";
   }
@@ -146,6 +148,9 @@ export function formatMatchEndReason(
     return decisiveBoard
       ? `A player ran out of time on ${decisiveBoard}.`
       : "A player ran out of time.";
+  }
+  if (reason === "disconnect_forfeit") {
+    return "A team disconnected and forfeited the match.";
   }
   if (reason === "checkmate") {
     return decisiveBoard

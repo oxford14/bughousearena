@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { registerTournamentTeam } from "@/lib/wallet/tournament-server";
+import { joinTournamentRoom } from "@/lib/wallet/tournament-server";
 import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
@@ -17,29 +17,42 @@ export async function POST(request: Request) {
 
     const body = (await request.json()) as {
       tournamentId?: string;
-      partnerUid?: string;
-      teamName?: string;
+      pin?: string;
+      slotIndex?: number;
     };
 
-    if (!body.tournamentId || !body.partnerUid) {
+    if (!body.tournamentId) {
       return NextResponse.json(
-        { error: "tournamentId and partnerUid are required." },
+        { error: "tournamentId is required." },
         { status: 400 }
       );
     }
 
-    const result = await registerTournamentTeam(
+    if (
+      typeof body.slotIndex !== "number" ||
+      !Number.isInteger(body.slotIndex) ||
+      body.slotIndex < 0 ||
+      body.slotIndex > 15
+    ) {
+      return NextResponse.json(
+        { error: "slotIndex (0–15) is required." },
+        { status: 400 }
+      );
+    }
+
+    const result = await joinTournamentRoom(
       getAdminDb(),
       body.tournamentId,
       uid,
-      body.partnerUid,
-      body.teamName ?? ""
+      body.pin,
+      body.slotIndex
     );
     return NextResponse.json(result);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Registration failed.";
-    const status = message.includes("enough") ? 412 : 400;
+      error instanceof Error ? error.message : "Join room failed.";
+    const status =
+      message.includes("coins") || message.includes("PIN") ? 412 : 400;
     return NextResponse.json({ error: message }, { status });
   }
 }

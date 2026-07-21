@@ -11,43 +11,69 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { getFirebaseDb } from "@/lib/firebase/config";
 import type { TournamentDocument } from "@/types/wallet";
+import Link from "next/link";
 import { createTournament, startTournamentBracket } from "@/lib/wallet/wallet-api";
 
 export default function SuperAdminTournamentsPage() {
   const [tournaments, setTournaments] = useState<
     (TournamentDocument & { id: string })[]
   >([]);
-  const [form, setForm] = useState({ name: "", description: "", fee: 100, startsAt: "" });
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    visibility: "public" as "public" | "private",
+    pin: "",
+  });
   const [saving, setSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
     const q = query(
       collection(getFirebaseDb(), "tournaments"),
-      orderBy("startsAt", "desc")
+      orderBy("createdAt", "desc")
     );
-    return onSnapshot(q, (snap) => {
-      setTournaments(
-        snap.docs.map((d) => ({ ...(d.data() as TournamentDocument), id: d.id }))
-      );
-    });
+    return onSnapshot(
+      q,
+      (snap) => {
+        setTournaments(
+          snap.docs.map((d) => ({
+            ...(d.data() as TournamentDocument),
+            id: d.id,
+          }))
+        );
+      },
+      () => {
+        onSnapshot(collection(getFirebaseDb(), "tournaments"), (snap) => {
+          setTournaments(
+            snap.docs.map((d) => ({
+              ...(d.data() as TournamentDocument),
+              id: d.id,
+            }))
+          );
+        });
+      }
+    );
   }, []);
 
   const handleCreate = async () => {
-    if (!form.name.trim() || !form.startsAt) {
-      toast.error("Name and start time are required.");
+    if (!form.name.trim()) {
+      toast.error("Name is required.");
+      return;
+    }
+    if (form.visibility === "private" && !/^\d{4}$/.test(form.pin)) {
+      toast.error("Private tournaments need a 4-digit PIN.");
       return;
     }
     setSaving(true);
     try {
-      await createTournament({
+      const result = await createTournament({
         name: form.name.trim(),
         description: form.description.trim() || undefined,
-        registrationFeeCoins: Number(form.fee),
-        startsAt: new Date(form.startsAt).toISOString(),
+        visibility: form.visibility,
+        pin: form.visibility === "private" ? form.pin : undefined,
       });
-      toast.success("Tournament created.");
-      setForm({ name: "", description: "", fee: 100, startsAt: "" });
+      toast.success(`Tournament created · code ${result.roomCode}`);
+      setForm({ name: "", description: "", visibility: "public", pin: "" });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Create failed.");
     } finally {
@@ -56,7 +82,7 @@ export default function SuperAdminTournamentsPage() {
   };
 
   const handleStart = async (id: string) => {
-    if (!window.confirm("Start the bracket? Registration will close.")) return;
+    if (!window.confirm("Start the bracket? Need 16 players; fees are deducted now.")) return;
     setBusyId(id);
     try {
       await startTournamentBracket(id);
@@ -73,7 +99,7 @@ export default function SuperAdminTournamentsPage() {
       <div>
         <h1 className="font-heading text-3xl neon-glow">Tournaments</h1>
         <p className="text-sm text-muted-foreground">
-          Create tournaments and start their brackets.
+          Host lobbies (same room flow as player page). Entry charged at start.
         </p>
       </div>
 
@@ -84,26 +110,13 @@ export default function SuperAdminTournamentsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <Label htmlFor="t-name">Name</Label>
-              <Input
-                id="t-name"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              />
-            </div>
-            <div>
-              <Label htmlFor="t-fee">Registration fee (coins)</Label>
-              <Input
-                id="t-fee"
-                type="number"
-                value={form.fee}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, fee: Number(e.target.value) }))
-                }
-              />
-            </div>
+          <div>
+            <Label htmlFor="t-name">Name</Label>
+            <Input
+              id="t-name"
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+            />
           </div>
           <div>
             <Label htmlFor="t-desc">Description (optional)</Label>
@@ -115,17 +128,41 @@ export default function SuperAdminTournamentsPage() {
               }
             />
           </div>
-          <div>
-            <Label htmlFor="t-start">Starts at</Label>
-            <Input
-              id="t-start"
-              type="datetime-local"
-              value={form.startsAt}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, startsAt: e.target.value }))
-              }
-            />
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={form.visibility === "public" ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => setForm((f) => ({ ...f, visibility: "public" }))}
+            >
+              Public
+            </Button>
+            <Button
+              type="button"
+              variant={form.visibility === "private" ? "default" : "outline"}
+              className="flex-1"
+              onClick={() => setForm((f) => ({ ...f, visibility: "private" }))}
+            >
+              Private
+            </Button>
           </div>
+          {form.visibility === "private" ? (
+            <div>
+              <Label htmlFor="t-pin">PIN</Label>
+              <Input
+                id="t-pin"
+                inputMode="numeric"
+                maxLength={4}
+                value={form.pin}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    pin: e.target.value.replace(/\D/g, "").slice(0, 4),
+                  }))
+                }
+              />
+            </div>
+          ) : null}
           <Button onClick={() => void handleCreate()} disabled={saving}>
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
             Create
@@ -147,26 +184,40 @@ export default function SuperAdminTournamentsPage() {
                     <Trophy className="h-4 w-4 shrink-0 text-primary" />
                     {t.name}
                     <Badge variant="secondary">{t.status}</Badge>
+                    {t.roomCode ? (
+                      <Badge variant="outline" className="font-mono">
+                        {t.roomCode}
+                      </Badge>
+                    ) : null}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {t.registeredTeamCount ?? 0} teams · {t.registrationFeeCoins}{" "}
-                    coins entry · reward {t.championRewardCoins ?? 0}
+                    {t.playerCount ?? 0}/{t.maxPlayers ?? 16} players ·{" "}
+                    {t.registrationFeeCoins ?? 100} coins entry · reward{" "}
+                    {t.championRewardCoins ?? 0}
                   </p>
                 </div>
-                {t.status === "registration" && (
-                  <Button
-                    size="sm"
-                    disabled={busyId === t.id}
-                    onClick={() => void handleStart(t.id)}
+                <div className="flex shrink-0 gap-2">
+                  <Link
+                    href={`/app/tournaments/${t.id}`}
+                    className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-xs font-medium hover:bg-accent"
                   >
-                    {busyId === t.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Play className="h-4 w-4" />
-                    )}
-                    Start
-                  </Button>
-                )}
+                    Open
+                  </Link>
+                  {t.status === "registration" ? (
+                    <Button
+                      size="sm"
+                      disabled={busyId === t.id}
+                      onClick={() => void handleStart(t.id)}
+                    >
+                      {busyId === t.id ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
+                      Start
+                    </Button>
+                  ) : null}
+                </div>
               </CardContent>
             </Card>
           ))

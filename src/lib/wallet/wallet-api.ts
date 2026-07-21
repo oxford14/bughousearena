@@ -76,32 +76,47 @@ export function requestRedemption(input: {
 }
 
 export function checkRedeemEligibility() {
-  return walletFetch<{ eligible: boolean; reasons: string[] }>(
-    "/api/redeem/eligibility"
+  return walletFetch<{
+    eligible: boolean;
+    reasons: string[];
+    bypassed?: boolean;
+  }>("/api/redeem/eligibility");
+}
+
+export function joinTournamentRoom(input: {
+  tournamentId: string;
+  pin?: string;
+  slotIndex: number;
+}) {
+  return walletFetch<{ joined: boolean; slotIndex: number; moved?: boolean }>(
+    "/api/tournaments/register",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    }
   );
 }
 
+/** @deprecated Use joinTournamentRoom */
 export function registerTournamentTeam(input: {
   tournamentId: string;
-  partnerUid: string;
-  teamName?: string;
+  pin?: string;
+  slotIndex: number;
 }) {
-  return walletFetch<{ teamId: string }>("/api/tournaments/register", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  return joinTournamentRoom(input);
 }
 
 export function createTournament(input: {
   name: string;
   description?: string;
-  registrationFeeCoins: number;
-  startsAt: string;
+  visibility: "public" | "private";
+  pin?: string;
+  hostDisplayName?: string;
 }) {
-  return walletFetch<{ tournamentId: string }>("/api/tournaments/create", {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  return walletFetch<{ tournamentId: string; roomCode: string }>(
+    "/api/tournaments/create",
+    { method: "POST", body: JSON.stringify(input) }
+  );
 }
 
 export function startTournamentBracket(tournamentId: string) {
@@ -109,6 +124,56 @@ export function startTournamentBracket(tournamentId: string) {
     method: "POST",
     body: JSON.stringify({ tournamentId }),
   });
+}
+
+export function kickTournamentMember(tournamentId: string, targetUid: string) {
+  return walletFetch<{ kicked: boolean }>("/api/tournaments/kick", {
+    method: "POST",
+    body: JSON.stringify({ tournamentId, targetUid }),
+  });
+}
+
+/** @deprecated Prefer kickTournamentMember */
+export function kickTournamentTeam(tournamentId: string, targetUid: string) {
+  return kickTournamentMember(tournamentId, targetUid);
+}
+
+export function leaveTournament(tournamentId: string) {
+  return walletFetch<{ left: boolean; closed: boolean; newHostUid?: string }>(
+    "/api/tournaments/leave",
+    {
+      method: "POST",
+      body: JSON.stringify({ tournamentId }),
+    }
+  );
+}
+
+export function pruneTournament(tournamentId: string) {
+  return walletFetch<{ pruned: number; forfeited: number }>(
+    "/api/tournaments/prune",
+    { method: "POST", body: JSON.stringify({ tournamentId }) }
+  );
+}
+
+export function tournamentMatchHeartbeat(matchId: string) {
+  return walletFetch<{ ok: boolean }>("/api/tournaments/match-heartbeat", {
+    method: "POST",
+    body: JSON.stringify({ matchId }),
+  });
+}
+
+export function checkTournamentForfeit(matchId: string) {
+  return walletFetch<{ forfeited: boolean; winnerTeamId?: string }>(
+    "/api/tournaments/check-forfeit",
+    { method: "POST", body: JSON.stringify({ matchId }) }
+  );
+}
+
+export function clearTournamentRegistrationOnGameStart() {
+  return walletFetch<{ removed: number }>(
+    "/api/tournaments/clear-registration",
+    { method: "POST", body: JSON.stringify({}) }
+  );
 }
 
 export function advanceTournamentMatch(matchId: string) {

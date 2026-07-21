@@ -9,11 +9,12 @@ import {
   stripAccountDigits,
   validatePayoutDestination,
 } from "@/lib/wallet/payout-methods";
+import { isSuperAdmin } from "@/lib/server/verify-super-admin";
 
 export async function checkRedeemEligibility(
   db: Firestore,
   uid: string
-): Promise<{ eligible: boolean; reasons: string[] }> {
+): Promise<{ eligible: boolean; reasons: string[]; bypassed?: boolean }> {
   const reasons: string[] = [];
   const userSnap = await db.collection("users").doc(uid).get();
   if (!userSnap.exists) {
@@ -21,20 +22,30 @@ export async function checkRedeemEligibility(
   }
 
   const data = userSnap.data()!;
-  const rankedPlayed =
-    ((data.rankedWins as number | undefined) ?? 0) +
-    ((data.rankedLosses as number | undefined) ?? 0);
-  if (rankedPlayed < REDEEM_MIN_RANKED_MATCHES) {
-    reasons.push(
-      `Play ${REDEEM_MIN_RANKED_MATCHES - rankedPlayed} more ranked games (${rankedPlayed}/${REDEEM_MIN_RANKED_MATCHES}).`
-    );
-  }
+  const bypassPlayGates = await isSuperAdmin(
+    uid,
+    (data.email as string | null | undefined) ?? null
+  );
 
-  const createdAt = data.createdAt?.toDate?.() as Date | undefined;
-  if (createdAt) {
-    const ageDays = (Date.now() - createdAt.getTime()) / (24 * 60 * 60 * 1000);
-    if (ageDays < REDEEM_MIN_ACCOUNT_AGE_DAYS) {
-      reasons.push(`Account must be at least ${REDEEM_MIN_ACCOUNT_AGE_DAYS} days old.`);
+  if (!bypassPlayGates) {
+    const rankedPlayed =
+      ((data.rankedWins as number | undefined) ?? 0) +
+      ((data.rankedLosses as number | undefined) ?? 0);
+    if (rankedPlayed < REDEEM_MIN_RANKED_MATCHES) {
+      reasons.push(
+        `Play ${REDEEM_MIN_RANKED_MATCHES - rankedPlayed} more ranked games (${rankedPlayed}/${REDEEM_MIN_RANKED_MATCHES}).`
+      );
+    }
+
+    const createdAt = data.createdAt?.toDate?.() as Date | undefined;
+    if (createdAt) {
+      const ageDays =
+        (Date.now() - createdAt.getTime()) / (24 * 60 * 60 * 1000);
+      if (ageDays < REDEEM_MIN_ACCOUNT_AGE_DAYS) {
+        reasons.push(
+          `Account must be at least ${REDEEM_MIN_ACCOUNT_AGE_DAYS} days old.`
+        );
+      }
     }
   }
 
@@ -48,7 +59,11 @@ export async function checkRedeemEligibility(
     reasons.push("You already have a pending redemption request.");
   }
 
-  return { eligible: reasons.length === 0, reasons };
+  return {
+    eligible: reasons.length === 0,
+    reasons,
+    ...(bypassPlayGates ? { bypassed: true } : {}),
+  };
 }
 
 export async function createRedemptionRequest(

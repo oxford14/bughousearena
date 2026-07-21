@@ -277,6 +277,11 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create, update, delete: if false;
       }
+
+      match /members/{memberUid} {
+        allow read: if isSignedIn();
+        allow create, update, delete: if false;
+      }
     }
 
     match /worldChat/{messageId} {

@@ -162,6 +162,10 @@ function FounderSettings({
         >
           {saving ? "Saving…" : "Save changes"}
         </Button>
+        <p className="text-xs text-muted-foreground">
+          To leave as founder, use Leave house above — ownership passes to another
+          member, or the house is deleted if you are alone.
+        </p>
       </CardContent>
     </Card>
   );
@@ -206,17 +210,15 @@ function MyHousePanel({
               <Image src={house.crestUrl} alt="" width={32} height={32} />
               {house.name}
             </CardTitle>
-            {!isFounder && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="cursor-pointer text-destructive border-destructive/40 hover:bg-destructive/10"
-                onClick={onLeave}
-              >
-                <LogOut className="h-4 w-4 mr-1.5" />
-                Leave house
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="cursor-pointer text-destructive border-destructive/40 hover:bg-destructive/10"
+              onClick={onLeave}
+            >
+              <LogOut className="h-4 w-4 mr-1.5" />
+              Leave house
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -377,10 +379,26 @@ export default function HousesPage() {
 
   const handleLeave = async () => {
     if (!profile?.houseId || !profile) return;
+
+    if (isFounder) {
+      const others = members.filter((m) => m.uid !== profile.uid);
+      const message =
+        others.length === 0
+          ? "You are the only member. Leaving will delete this house. Continue?"
+          : `Foundership will pass to another member, then you will leave. Continue?`;
+      if (!window.confirm(message)) return;
+    } else if (!window.confirm("Leave this house?")) {
+      return;
+    }
+
     try {
       await leaveHouse(profile.houseId, profile);
       await refreshProfile();
-      toast.success("Left house.");
+      toast.success(
+        isFounder && members.length <= 1
+          ? "House deleted."
+          : "Left house."
+      );
       setActiveTab("browse");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Could not leave house.");

@@ -33,6 +33,7 @@ import { VoiceChatManager } from "@/lib/voice/webrtc";
 import { useAuth } from "@/providers/auth-provider";
 import { useSound } from "@/providers/sound-provider";
 import { useBotController } from "@/hooks/use-bot-controller";
+import { useTournamentMatchPresence } from "@/hooks/use-tournament-match-presence";
 import { useOptimisticBoards } from "@/hooks/use-optimistic-boards";
 import { MatchNowProvider } from "@/components/game/match-now-context";
 import {
@@ -106,6 +107,7 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   }, [match.players, myTeam, user]);
 
   useBotController({ match, boards, humanUid: user?.uid });
+  const { disconnectCountdown } = useTournamentMatchPresence(match, user?.uid);
 
   useEffect(() => {
     if (!user || !match.id || !myTeam) return;
@@ -333,6 +335,14 @@ export function BughouseArena({ match, boards }: BughouseArenaProps) {
   return (
     <MatchNowProvider active={match.status === "active"}>
     <div className="space-y-4">
+      {disconnectCountdown ? (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+          Reconnect or forfeit in {disconnectCountdown.remainingSec}s
+          {disconnectCountdown.uid === user?.uid
+            ? " (you)"
+            : " (player disconnected)"}
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-4 arena-card p-4 rounded-xl border border-primary/20">
         <PhysicalMatchClockBar match={match} boards={displayBoards} />
         <div className="flex gap-2">

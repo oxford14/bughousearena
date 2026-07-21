@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import {
-  advanceTournamentOnMatchComplete,
-  spawnBracketMatches,
-} from "@/lib/wallet/tournament-server";
+import { advanceTournamentOnMatchComplete } from "@/lib/wallet/tournament-server";
 import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
@@ -43,8 +40,7 @@ export async function POST(request: Request) {
 
     const team1Id = match.tournamentTeam1Id as string;
     const team2Id = match.tournamentTeam2Id as string;
-    const winnerTeamId =
-      match.winnerTeam === 1 ? team1Id : team2Id;
+    const winnerTeamId = match.winnerTeam === 1 ? team1Id : team2Id;
 
     await advanceTournamentOnMatchComplete(
       db,
@@ -52,16 +48,6 @@ export async function POST(request: Request) {
       matchId,
       winnerTeamId
     );
-
-    const tournamentSnap = await db.collection("tournaments").doc(tournamentId).get();
-    const status = tournamentSnap.data()?.status;
-    if (status === "active") {
-      const bracket = tournamentSnap.data()?.bracket as Array<{ round: number }>;
-      const maxRound = Math.max(...(bracket?.map((m) => m.round) ?? [1]));
-      for (let r = 1; r <= maxRound; r++) {
-        await spawnBracketMatches(db, tournamentId, r);
-      }
-    }
 
     return NextResponse.json({ advanced: true });
   } catch (error) {

@@ -94,20 +94,53 @@ export async function leaveHouse(houseId: string, user: UserProfile): Promise<vo
     throw new Error("You are not in this house.");
   }
 
-  const memberRef = doc(getFirebaseDb(), "houses", houseId, "members", user.uid);
+  const houseRef = doc(getFirebaseDb(), "houses", houseId);
+  const memberRef = doc(houseRef, "members", user.uid);
   const memberSnap = await getDoc(memberRef);
   if (!memberSnap.exists()) {
     throw new Error("Membership not found.");
   }
 
   const role = (memberSnap.data() as HouseMember).role;
+
   if (role === "founder") {
-    throw new Error("Founders cannot leave. Transfer ownership or delete the house.");
+    const membersSnap = await getDocs(collection(houseRef, "members"));
+    const others = membersSnap.docs
+      .map((d) => d.data() as HouseMember)
+      .filter((m) => m.uid !== user.uid);
+
+    if (others.length === 0) {
+      await deleteDoc(memberRef);
+      await updateDoc(doc(getFirebaseDb(), "users", user.uid), { houseId: null });
+      await deleteDoc(houseRef);
+      return;
+    }
+
+    others.sort((a, b) => {
+      const roleRank = (r: HouseRole) => (r === "steward" ? 0 : 1);
+      const byRole = roleRank(a.role) - roleRank(b.role);
+      if (byRole !== 0) return byRole;
+      const aJoined = a.joinedAt?.toMillis?.() ?? 0;
+      const bJoined = b.joinedAt?.toMillis?.() ?? 0;
+      return aJoined - bJoined;
+    });
+
+    const successor = others[0]!;
+    await updateDoc(doc(houseRef, "members", successor.uid), {
+      role: "founder",
+    });
+    await updateDoc(houseRef, {
+      founderId: successor.uid,
+      memberCount: increment(-1),
+    });
+    await deleteDoc(memberRef);
+    await updateDoc(doc(getFirebaseDb(), "users", user.uid), { houseId: null });
+    return;
   }
 
   await deleteDoc(memberRef);
   await updateDoc(doc(getFirebaseDb(), "users", user.uid), { houseId: null });
-  await updateDoc(doc(getFirebaseDb(), "houses", houseId), {
+  await updateDoc(houseRef, {
     memberCount: increment(-1),
   });
 }

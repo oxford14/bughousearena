@@ -8,7 +8,8 @@ export type MatchEndReason =
   | "checkmate"
   | "explosion"
   | "time_forfeit"
-  | "resignation";
+  | "resignation"
+  | "disconnect_forfeit";
 export type PlayerColor = "w" | "b";
 export type HouseRole = "founder" | "steward" | "member";
 export type FriendRequestStatus = "pending" | "accepted" | "declined";
@@ -157,6 +158,8 @@ export interface MatchDocument {
   tournamentTeam1Id?: string | null;
   /** Tournament team id seated as in-game team 2. */
   tournamentTeam2Id?: string | null;
+  /** Per-player last heartbeat ms for tournament disconnect forfeit. */
+  tournamentHeartbeats?: Record<string, number>;
 }
 
 export interface BoardDocument {

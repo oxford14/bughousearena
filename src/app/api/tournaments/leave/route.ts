@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
-import {
-  startTournamentBracket,
-  spawnBracketMatches,
-} from "@/lib/wallet/tournament-server";
+import { leaveTournamentRoom } from "@/lib/wallet/tournament-server";
 import { enforceApiRateLimits } from "@/lib/server/rate-limit";
 import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
@@ -18,22 +15,22 @@ export async function POST(request: Request) {
     });
     if (limited) return limited;
 
-    const { tournamentId } = (await request.json()) as { tournamentId?: string };
-    if (!tournamentId) {
+    const body = (await request.json()) as { tournamentId?: string };
+    if (!body.tournamentId) {
       return NextResponse.json(
         { error: "tournamentId is required." },
         { status: 400 }
       );
     }
 
-    const db = getAdminDb();
-    await startTournamentBracket(db, tournamentId, uid);
-    await spawnBracketMatches(db, tournamentId, 1);
-    return NextResponse.json({ started: true });
+    const result = await leaveTournamentRoom(
+      getAdminDb(),
+      body.tournamentId,
+      uid
+    );
+    return NextResponse.json(result);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Start bracket failed.";
-    const status = message.includes("host") ? 403 : 400;
-    return NextResponse.json({ error: message }, { status });
+    const message = error instanceof Error ? error.message : "Leave failed.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

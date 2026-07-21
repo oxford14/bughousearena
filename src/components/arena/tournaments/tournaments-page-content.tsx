@@ -1,12 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { Trophy, Users } from "lucide-react";
+import { Lock, Plus, Search, Trophy, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   collection,
   onSnapshot,
@@ -14,99 +29,208 @@ import {
   query,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase/config";
-import type { TournamentDocument, TournamentTeam } from "@/types/wallet";
+import type { TournamentDocument } from "@/types/wallet";
 import { useAuth } from "@/providers/auth-provider";
-import { registerTournamentTeam, createTournament, startTournamentBracket } from "@/lib/wallet/wallet-api";
-import { isUserAdmin } from "@/lib/wallet/admin-client";
+import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  createTournament,
+  TOURNAMENT_ENTRY_FEE,
+  TOURNAMENT_MAX_PLAYERS,
+} from "@/lib/wallet/tournament-client";
 import { toast } from "sonner";
+
+type CreateForm = {
+  name: string;
+  description: string;
+  visibility: "public" | "private";
+  pin: string;
+};
+
+const emptyForm: CreateForm = {
+  name: "",
+  description: "",
+  visibility: "public",
+  pin: "",
+};
+
+function CreateTournamentForm({
+  form,
+  setForm,
+  creating,
+  onSubmit,
+}: {
+  form: CreateForm;
+  setForm: (next: CreateForm) => void;
+  creating: boolean;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <Input
+        placeholder="Tournament name"
+        value={form.name}
+        onChange={(e) => setForm({ ...form, name: e.target.value })}
+        autoFocus
+      />
+      <Input
+        placeholder="Description (optional)"
+        value={form.description}
+        onChange={(e) => setForm({ ...form, description: e.target.value })}
+      />
+      <div className="flex gap-2">
+        <Button
+          type="button"
+          variant={form.visibility === "public" ? "default" : "outline"}
+          className="flex-1"
+          onClick={() => setForm({ ...form, visibility: "public" })}
+        >
+          Public
+        </Button>
+        <Button
+          type="button"
+          variant={form.visibility === "private" ? "default" : "outline"}
+          className="flex-1"
+          onClick={() => setForm({ ...form, visibility: "private" })}
+        >
+          Private
+        </Button>
+      </div>
+      {form.visibility === "private" ? (
+        <Input
+          inputMode="numeric"
+          maxLength={4}
+          placeholder="4-digit PIN"
+          value={form.pin}
+          onChange={(e) =>
+            setForm({
+              ...form,
+              pin: e.target.value.replace(/\D/g, "").slice(0, 4),
+            })
+          }
+        />
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        You enter as host in slot 1. Entry ({TOURNAMENT_ENTRY_FEE} coins each)
+        is charged when the tournament starts.
+      </p>
+      <Button
+        className="btn-arena-primary w-full"
+        disabled={creating}
+        onClick={onSubmit}
+      >
+        {creating ? "Creating…" : "Create room"}
+      </Button>
+    </div>
+  );
+}
 
 export default function TournamentsPageContent() {
   const { user, profile } = useAuth();
-  const [tournaments, setTournaments] = useState<(TournamentDocument & { id: string })[]>([]);
-  const [teams, setTeams] = useState<Record<string, (TournamentTeam & { id: string })[]>>({});
-  const [partnerUid, setPartnerUid] = useState("");
-  const [teamName, setTeamName] = useState("");
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [adminForm, setAdminForm] = useState({
-    name: "",
-    description: "",
-    fee: 100,
-    startsAt: "",
-  });
+  const router = useRouter();
+  const isMobile = useIsMobile();
+  const [tournaments, setTournaments] = useState<
+    (TournamentDocument & { id: string })[]
+  >([]);
+  const [codeSearch, setCodeSearch] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateForm>(emptyForm);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
+    let unsub = () => {};
     const q = query(
       collection(getFirebaseDb(), "tournaments"),
-      orderBy("startsAt", "desc")
+      orderBy("createdAt", "desc")
     );
-    return onSnapshot(q, (snap) => {
-      setTournaments(
-        snap.docs.map((d) => ({ ...(d.data() as TournamentDocument), id: d.id }))
-      );
-    });
+    unsub = onSnapshot(
+      q,
+      (snap) => {
+        setTournaments(
+          snap.docs.map((d) => ({
+            ...(d.data() as TournamentDocument),
+            id: d.id,
+          }))
+        );
+      },
+      () => {
+        unsub = onSnapshot(
+          collection(getFirebaseDb(), "tournaments"),
+          (snap) => {
+            const list = snap.docs.map((d) => ({
+              ...(d.data() as TournamentDocument),
+              id: d.id,
+            }));
+            list.sort((a, b) => {
+              const at =
+                a.createdAt?.toMillis?.() ?? a.startsAt?.toMillis?.() ?? 0;
+              const bt =
+                b.createdAt?.toMillis?.() ?? b.startsAt?.toMillis?.() ?? 0;
+              return bt - at;
+            });
+            setTournaments(list);
+          }
+        );
+      }
+    );
+    return () => unsub();
   }, []);
 
-  useEffect(() => {
-    if (!user) return;
-    void isUserAdmin().then(setIsAdmin).catch(() => setIsAdmin(false));
-  }, [user]);
+  const filtered = useMemo(() => {
+    const open = tournaments.filter((t) => t.status !== "cancelled");
+    const q = codeSearch.trim().toUpperCase();
+    if (!q) return open;
+    return open.filter((t) => (t.roomCode ?? "").toUpperCase().includes(q));
+  }, [tournaments, codeSearch]);
 
-  useEffect(() => {
-    const unsubs: (() => void)[] = [];
-    for (const t of tournaments) {
-      const unsub = onSnapshot(
-        collection(getFirebaseDb(), "tournaments", t.id, "teams"),
-        (snap) => {
-          setTeams((prev) => ({
-            ...prev,
-            [t.id]: snap.docs.map((d) => ({
-              ...(d.data() as TournamentTeam),
-              id: d.id,
-            })),
-          }));
-        }
-      );
-      unsubs.push(unsub);
+  const openCreate = () => {
+    if (!user) {
+      toast.error("Sign in to host a tournament.");
+      return;
     }
-    return () => unsubs.forEach((u) => u());
-  }, [tournaments]);
-
-  const handleRegister = async (tournamentId: string) => {
-    try {
-      await registerTournamentTeam({
-        tournamentId,
-        partnerUid,
-        teamName,
-      });
-      toast.success("Team registered! Champion Reward pool updated.");
-      setPartnerUid("");
-      setTeamName("");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Registration failed.");
-    }
+    setCreateOpen(true);
   };
 
   const handleCreate = async () => {
+    if (!user || !profile) {
+      toast.error("Sign in to host a tournament.");
+      return;
+    }
+    if (!createForm.name.trim()) {
+      toast.error("Enter a tournament name.");
+      return;
+    }
+    if (
+      createForm.visibility === "private" &&
+      !/^\d{4}$/.test(createForm.pin)
+    ) {
+      toast.error("Private rooms need a 4-digit PIN.");
+      return;
+    }
+    setCreating(true);
     try {
-      await createTournament({
-        name: adminForm.name,
-        description: adminForm.description,
-        registrationFeeCoins: adminForm.fee,
-        startsAt: adminForm.startsAt,
+      const result = await createTournament({
+        name: createForm.name,
+        description: createForm.description,
+        visibility: createForm.visibility,
+        pin: createForm.visibility === "private" ? createForm.pin : undefined,
+        hostDisplayName: profile.displayName,
       });
-      toast.success("Tournament created!");
+      toast.success(`Room created · code ${result.roomCode}`);
+      setCreateForm(emptyForm);
+      setCreateOpen(false);
+      router.push(`/app/tournaments/${result.tournamentId}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Create failed.");
+    } finally {
+      setCreating(false);
     }
   };
 
-  const handleStart = async (tournamentId: string) => {
-    try {
-      await startTournamentBracket(tournamentId);
-      toast.success("Bracket started!");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Start failed.");
-    }
+  const formProps = {
+    form: createForm,
+    setForm: setCreateForm,
+    creating,
+    onSubmit: () => void handleCreate(),
   };
 
   return (
@@ -117,141 +241,142 @@ export default function TournamentsPageContent() {
           Tournaments
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Register with a partner, compete in brackets, and claim the Champion Reward.
+          Browse rooms and enter one to pick a slot. Hosts start when all{" "}
+          {TOURNAMENT_MAX_PLAYERS} seats are filled — {TOURNAMENT_ENTRY_FEE}{" "}
+          coins are deducted then. Champions split 80% of the pool.
         </p>
       </motion.div>
 
-      {isAdmin ? (
-        <Card className="arena-card border-accent/30">
-          <CardHeader>
-            <CardTitle className="text-base">Admin — Create event</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Input
-              placeholder="Tournament name"
-              value={adminForm.name}
-              onChange={(e) => setAdminForm({ ...adminForm, name: e.target.value })}
-            />
-            <Input
-              placeholder="Description"
-              value={adminForm.description}
-              onChange={(e) => setAdminForm({ ...adminForm, description: e.target.value })}
-            />
-            <Input
-              type="number"
-              placeholder="Registration fee (coins)"
-              value={adminForm.fee}
-              onChange={(e) =>
-                setAdminForm({ ...adminForm, fee: Number(e.target.value) })
-              }
-            />
-            <Input
-              type="datetime-local"
-              value={adminForm.startsAt}
-              onChange={(e) =>
-                setAdminForm({ ...adminForm, startsAt: e.target.value })
-              }
-            />
-            <Button className="btn-arena-primary" onClick={handleCreate}>
-              Create tournament
-            </Button>
-          </CardContent>
-        </Card>
-      ) : null}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1 min-w-0">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            placeholder="Search by room code"
+            value={codeSearch}
+            onChange={(e) => setCodeSearch(e.target.value)}
+          />
+        </div>
+        <Button
+          size="sm"
+          className="btn-arena-primary shrink-0 gap-1.5 px-3"
+          onClick={openCreate}
+        >
+          <Plus className="h-4 w-4" />
+          Create
+        </Button>
+      </div>
 
-      {tournaments.length === 0 ? (
+      {filtered.length === 0 ? (
         <Card className="arena-card border-primary/20 p-6 text-center text-muted-foreground">
-          No tournaments yet. Check back soon!
+          No open rooms. Create a tournament to get started.
         </Card>
       ) : (
-        tournaments.map((t) => (
-          <Card key={t.id} className="arena-card border-primary/20">
-            <CardHeader>
-              <div className="flex justify-between items-start gap-2">
-                <div>
-                  <CardTitle className="font-heading">{t.name}</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1 capitalize">{t.status}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-xs text-muted-foreground uppercase">Champion Reward</p>
-                  <p className="font-heading text-lg text-primary">
-                    {t.championRewardCoins.toLocaleString()} coins
-                  </p>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {t.description ? (
-                <p className="text-sm text-muted-foreground">{t.description}</p>
-              ) : null}
-              <p className="text-sm">
-                Entry: <span className="text-primary font-medium">{t.registrationFeeCoins} coins</span>{" "}
-                per player · {t.registeredTeamCount}/{t.maxTeams} teams
-              </p>
+        filtered.map((t) => {
+          const maxPlayers = t.maxPlayers ?? TOURNAMENT_MAX_PLAYERS;
+          const playerCount = t.playerCount ?? t.memberUids?.length ?? 0;
+          const youIn =
+            user?.uid &&
+            (t.memberUids?.includes(user.uid) ||
+              t.slots?.includes(user.uid));
 
-              {(teams[t.id] ?? []).length > 0 ? (
-                <div className="rounded-lg border border-primary/15 p-3 space-y-1">
-                  <p className="text-xs uppercase text-muted-foreground mb-2">Registered teams</p>
-                  {(teams[t.id] ?? []).map((team) => (
-                    <p key={team.id} className="text-sm">
-                      {team.teamName} — {team.player1DisplayName} & {team.player2DisplayName}
+          return (
+            <Card key={t.id} className="arena-card border-primary/20">
+              <CardHeader>
+                <div className="flex justify-between items-start gap-2">
+                  <div>
+                    <CardTitle className="font-heading flex items-center gap-2 flex-wrap">
+                      {t.name}
+                      {t.visibility === "private" ? (
+                        <Badge variant="secondary" className="gap-1">
+                          <Lock className="h-3 w-3" /> Private
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Public</Badge>
+                      )}
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1 capitalize">
+                      {t.status === "registration" ? "Lobby" : t.status} · Code{" "}
+                      <span className="font-mono text-foreground">
+                        {t.roomCode ?? "—"}
+                      </span>
+                      {t.hostDisplayName
+                        ? ` · Host ${t.hostDisplayName}`
+                        : null}
                     </p>
-                  ))}
-                </div>
-              ) : null}
-
-              {t.bracket && t.bracket.length > 0 ? (
-                <div className="rounded-lg border border-primary/15 p-3">
-                  <p className="text-xs uppercase text-muted-foreground mb-2">Bracket</p>
-                  {t.bracket.map((m) => (
-                    <p key={m.id} className="text-xs text-muted-foreground">
-                      R{m.round}: {m.team1Id ? "Team" : "TBD"} vs {m.team2Id ? "Team" : "TBD"}
-                      {m.winnerTeamId ? " ✓" : m.matchId ? " (live)" : ""}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-xs text-muted-foreground uppercase">
+                      Players
                     </p>
-                  ))}
+                    <p className="font-heading text-lg text-primary flex items-center justify-end gap-1">
+                      <Users className="h-4 w-4" />
+                      {playerCount}/{maxPlayers}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-1 uppercase">
+                      Champion reward
+                    </p>
+                    <p className="text-sm text-primary">
+                      {(t.championRewardCoins ?? 0).toLocaleString()} coins
+                    </p>
+                  </div>
                 </div>
-              ) : null}
-
-              {t.status === "registration" ? (
-                <div className="space-y-2 border-t border-primary/10 pt-4">
-                  <p className="text-xs uppercase text-muted-foreground flex items-center gap-1">
-                    <Users className="h-3 w-3" /> Register with a partner
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {t.description ? (
+                  <p className="text-sm text-muted-foreground line-clamp-2">
+                    {t.description}
                   </p>
-                  <Input
-                    placeholder="Partner UID (from their profile URL)"
-                    value={partnerUid}
-                    onChange={(e) => setPartnerUid(e.target.value)}
-                  />
-                  <Input
-                    placeholder="Team name (optional)"
-                    value={teamName}
-                    onChange={(e) => setTeamName(e.target.value)}
-                  />
-                  <Button
-                    className="btn-arena-primary w-full"
-                    disabled={!partnerUid.trim()}
-                    onClick={() => handleRegister(t.id)}
-                  >
-                    Register — {t.registrationFeeCoins} coins each
-                  </Button>
-                  <p className="text-[10px] text-muted-foreground">
-                    Tip: find friends in{" "}
-                    <Link href="/app/friends" className="text-primary underline">
-                      Friends
-                    </Link>{" "}
-                    and copy their UID from profile.
-                  </p>
-                </div>
-              ) : null}
-
-              {isAdmin && t.status === "registration" ? (
-                <Button variant="outline" onClick={() => handleStart(t.id)}>
-                  Start bracket (admin)
+                ) : null}
+                <p className="text-sm">
+                  Entry:{" "}
+                  <span className="text-primary font-medium">
+                    {t.registrationFeeCoins ?? TOURNAMENT_ENTRY_FEE} coins
+                  </span>{" "}
+                  (charged at start)
+                </p>
+                <Button
+                  className="btn-arena-primary w-full"
+                  onClick={() => router.push(`/app/tournaments/${t.id}`)}
+                >
+                  {youIn
+                    ? "Enter room"
+                    : t.status === "registration"
+                      ? "Enter room"
+                      : "View room"}
                 </Button>
-              ) : null}
-            </CardContent>
-          </Card>
-        ))
+              </CardContent>
+            </Card>
+          );
+        })
+      )}
+
+      {isMobile ? (
+        <Sheet open={createOpen} onOpenChange={setCreateOpen}>
+          <SheetContent side="bottom" className="rounded-t-2xl pb-8">
+            <SheetHeader className="px-0 pt-0">
+              <SheetTitle>Create tournament</SheetTitle>
+              <SheetDescription>
+                Host a room. You take slot 1 automatically.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="px-4">
+              <CreateTournamentForm {...formProps} />
+            </div>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+          <DialogContent className="sm:max-w-md border-primary/30">
+            <DialogHeader>
+              <DialogTitle>Create tournament</DialogTitle>
+              <DialogDescription>
+                Host a room. You take slot 1 automatically.
+              </DialogDescription>
+            </DialogHeader>
+            <CreateTournamentForm {...formProps} />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );

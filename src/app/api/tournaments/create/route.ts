@@ -2,45 +2,53 @@ import { NextResponse } from "next/server";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { createTournament } from "@/lib/wallet/tournament-server";
 import { enforceApiRateLimits } from "@/lib/server/rate-limit";
-import { verifyAdminRequest } from "@/lib/server/verify-admin";
+import { verifyAuthRequest } from "@/lib/server/verify-auth";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
-    const { uid } = await verifyAdminRequest(request);
+    const { uid } = await verifyAuthRequest(request);
     const limited = await enforceApiRateLimits(request, {
       uid,
-      tier: "admin",
+      tier: "walletMutation",
     });
     if (limited) return limited;
 
     const body = (await request.json()) as {
       name?: string;
       description?: string;
-      registrationFeeCoins?: number;
-      startsAt?: string;
+      visibility?: "public" | "private";
+      pin?: string;
+      hostDisplayName?: string;
     };
 
-    if (!body.name?.trim() || !body.registrationFeeCoins || !body.startsAt) {
-      return NextResponse.json(
-        { error: "name, registrationFeeCoins, and startsAt are required." },
-        { status: 400 }
-      );
+    if (!body.name?.trim()) {
+      return NextResponse.json({ error: "name is required." }, { status: 400 });
     }
 
-    const tournamentId = await createTournament(getAdminDb(), {
+    const visibility = body.visibility === "private" ? "private" : "public";
+    const db = getAdminDb();
+    const hostSnap = await db.collection("users").doc(uid).get();
+    const hostDisplayName =
+      body.hostDisplayName?.trim() ||
+      (hostSnap.data()?.displayName as string) ||
+      "Host";
+
+    const result = await createTournament(db, {
       name: body.name.trim(),
       description: body.description,
-      registrationFeeCoins: body.registrationFeeCoins,
-      startsAt: new Date(body.startsAt),
+      hostUid: uid,
+      hostDisplayName,
+      hostPhotoURL: (hostSnap.data()?.photoURL as string | null) ?? null,
+      visibility,
+      pin: body.pin,
     });
 
-    return NextResponse.json({ tournamentId });
+    return NextResponse.json(result);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Create tournament failed.";
-    const status = message.includes("Admin") ? 403 : 400;
-    return NextResponse.json({ error: message }, { status });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

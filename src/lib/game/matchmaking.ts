@@ -153,6 +153,15 @@ export async function joinQueue(
 ): Promise<string> {
   await clearUserQueueEntries(user.uid);
 
+  try {
+    const { clearTournamentRegistrationOnGameStart } = await import(
+      "@/lib/wallet/wallet-api"
+    );
+    await clearTournamentRegistrationOnGameStart();
+  } catch {
+    /* best-effort — don't block queue */
+  }
+
   const type = normalizeGameType(gameType);
 
   if (!allowedMatchModes(type).includes(mode)) {
